@@ -1,21 +1,21 @@
 # Manhwa Studio — moldura, marca-d’água e limpeza de metadados
 
-Aplicação web para receber um link de vídeo do YouTube, baixar vídeos públicos ou não listados por meio de um backend próprio, aplicar uma imagem PNG/JPEG como moldura, desfocar uma região de marca-d’água própria e exportar um novo vídeo.
+Aplicação web para receber um link de vídeo do YouTube, baixar vídeos públicos/listados por meio de um backend próprio, aplicar uma imagem PNG/JPEG como moldura, desfocar uma região de marca-d’água própria e exportar um novo vídeo.
 
 ## Fluxo de uso
 
-1. Cole o link de um único vídeo público ou não listado do YouTube.
+1. Cole o link de um único vídeo público/listado do YouTube.
 2. Envie a imagem PNG ou JPEG que será usada como fundo/moldura.
 3. Opcionalmente, ative **Ocultar sua marca-d’água** e informe a posição e o tamanho da região em porcentagem do quadro original.
 4. Clique em **Criar vídeo com 1 clique**.
 5. O backend inicia um trabalho em segundo plano, informa o progresso por consulta periódica e disponibiliza o MP4 ao navegador quando termina. O navegador aplica a moldura, grava a composição e o FFmpeg.wasm remove metadados descritivos do contêiner.
 6. O arquivo final WebM é baixado automaticamente.
 
-Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
+O serviço aceita somente vídeos públicos/listados. Vídeos não listados e privados são recusados. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
 
 ## Backend do YouTube
 
-O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, inclusive não listados, e recusa playlists, transmissões ao vivo e vídeos que exijam login. O limite configurado é de 4 horas e 2 GB por arquivo. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
+O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, e recusa vídeos não listados, privados, playlists, transmissões ao vivo e vídeos que exijam login. O limite configurado é de 4 horas e 2 GB por arquivo. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
 
 ### Implantar no Render
 
