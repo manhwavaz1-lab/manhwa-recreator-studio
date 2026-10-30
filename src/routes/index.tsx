@@ -291,11 +291,11 @@ function Studio() {
         <section className="oneclick-grid">
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo público ou não listado</small></div></div>
-            <button className="oneclick-drop" onClick={() => videoInput.current?.click()} disabled={busy}>
+            <button className="oneclick-drop" onClick={() => document.getElementById("youtube-link")?.focus()} disabled={busy}>
               {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Youtube/><strong>Vídeo será baixado do YouTube</strong><small>Cole o link público ou não listado abaixo</small></>}
             </button>
             <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube</label>
-            <input value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
+            <input id="youtube-link" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
             <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita vídeos públicos e não listados. Não aceita vídeos privados nem playlists. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
             {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
           </div>
