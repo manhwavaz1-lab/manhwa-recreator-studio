@@ -1,57 +1,54 @@
-# Manhwa Recreator Studio Pro — V4.0
+# Manhwa Recreator Studio Pro — V4.1
 
-Aplicação web de apoio à produção de recaps de Manhwa, com análise de referências visuais, roteiro original e memória narrativa entre episódios.
+Aplicação web para produção de recaps de Manhwa, com análise visual, roteiro original e memória narrativa entre episódios. Interface em português, tema escuro com vermelho e compatibilidade com Lovable.
 
-## O que está implementado nesta entrega
+## Funcionalidades
 
-- Interface de estúdio em português, tema escuro e layout responsivo.
-- Cadastro do nome do projeto.
-- Campo de URL do YouTube para registrar a referência do episódio.
-- Importação local de vídeo ou até 8 imagens. Para vídeo, o navegador extrai três quadros de referência usando vídeo HTML + Canvas.
-- Integração com OpenRouter: consulta do catálogo de modelos e chamadas de chat com imagens.
-- Análise de quadros e geração de sinopse, cenas, personagens, movimentos de câmera, roteiro e notas de continuidade.
-- Memória narrativa persistida no navegador (personagens, episódios e lore).
-- Editor de roteiro, prévia de voz via SpeechSynthesis do navegador e exportação de legendas WebVTT.
-- Exportação do estado do projeto e da memória em JSON.
-- Tela de linha do tempo que organiza cenas e deixa explícita a dependência do renderizador.
+- Interface responsiva de estúdio e nome de projeto.
+- Importação local de vídeo para extração de quadros no navegador ou até 8 imagens.
+- Catálogo dinâmico de modelos OpenRouter, com metadados de modalidades, contexto e parâmetros suportados.
+- Análise visual por modelos com entrada de imagem.
+- Geração de sinopse, personagens, cenas, movimentos de câmera, roteiro e notas de continuidade.
+- Memória narrativa local (personagens, episódios e lore).
+- Exportação de projeto JSON e legendas WebVTT.
+- Proxy OpenRouter em Supabase Edge Function, compatível com Lovable Cloud.
+- Gateway backend para chat/visão, geração de imagens, TTS, transcrição, embeddings e vídeo, respeitando os endpoints específicos de cada modalidade.
 
-## Desenvolvimento
+## Configuração no Lovable
+
+1. Abra o projeto no Lovable e conecte/ative **Lovable Cloud** (ou o projeto Supabase conectado).
+2. Confirme que o ambiente de build fornece `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` (ou `VITE_SUPABASE_ANON_KEY`). São valores públicos de conexão, não segredos.
+3. Sincronize este commit do GitHub no Lovable. A função `supabase/functions/openrouter-proxy/index.ts` deve ser publicada como Edge Function `openrouter-proxy`.
+4. Em Configurações do aplicativo, informe sua chave criada em https://openrouter.ai/keys e clique em **Atualizar modelos**.
+5. Para análise de quadros, selecione um modelo cuja arquitetura informe entrada `image`.
+
+A chave OpenRouter é mantida somente em memória durante a sessão do navegador e enviada ao proxy por HTTPS para a chamada correspondente. Ela não é gravada no localStorage, no repositório, nem em uma variável pública. Ao recarregar a página, informe-a novamente. O proxy não armazena a chave; ele a encaminha para OpenRouter.
+
+A função aceita somente endpoints OpenRouter explicitamente permitidos: `/models`, `/chat/completions`, `/images`, `/audio/speech`, `/audio/transcriptions`, `/embeddings` e `/videos`. Para transcrição, o cliente envia o áudio em base64 e a Edge Function converte para multipart/form-data. Para TTS, a resposta binária é devolvida como Blob.
+
+## Desenvolvimento local
 
 Requer Node.js compatível com Vite 8.
 
-\`\`\`sh
+```sh
 npm install
 npm run dev
 npm run lint
 npm test
 npm run build
-\`\`\`
+```
 
-## Configuração OpenRouter
+Para executar localmente o proxy, conecte o Supabase CLI ao mesmo projeto e publique/execute a função com a configuração de `supabase/config.toml`.
 
-1. Crie uma chave em https://openrouter.ai/keys.
-2. Abra Configurações / OpenRouter no aplicativo e informe a chave.
-3. Clique em **Atualizar modelos** e escolha um modelo com entrada de imagem para análise visual.
-4. A chave é salva no localStorage do navegador atual. Em computador compartilhado, remova-a ao terminar.
+## Limitações conhecidas
 
-A aplicação chama a API OpenRouter diretamente do navegador. Para produção com vários usuários, substitua isso por um backend autenticado que mantenha a chave em segredo. Nunca publique uma chave em código, commit ou variável pública do front-end.
-
-## Limitações importantes — não confundir com funcionalidades concluídas
-
-- **URL do YouTube:** o link é guardado como referência; esta aplicação não baixa vídeos do YouTube. Importe um arquivo local que você tenha direito de utilizar. A extração automática do YouTube exige um serviço separado, permissões e conformidade com os termos aplicáveis.
-- **Narração:** o botão de prévia usa as vozes instaladas no navegador via SpeechSynthesis. Isso não gera MP3 e a disponibilidade de vozes pt-BR depende do sistema operacional/navegador. OpenRouter é uma API de modelos de linguagem/visão, não um serviço de TTS.
-- **MP4/FFmpeg:** a tela de linha do tempo organiza as cenas, mas não renderiza MP4. Para isso é necessário adicionar e configurar um worker de renderização com FFmpeg, armazenamento de mídia e um serviço TTS que produza arquivos de áudio.
-- **Sincronização:** os tempos de WebVTT são estimativas baseadas no tamanho das frases, não sincronização palavra por palavra.
-- **Memória:** nesta versão a memória fica no localStorage do navegador e não sincroniza entre dispositivos. Exporte o JSON para backup.
+- **Modelos e modalidades:** a disponibilidade depende do catálogo OpenRouter e do modelo/provedor. A existência de um endpoint não significa que todo modelo o suporte. O gateway de modalidades está disponível no serviço; a interface atual usa chat/visão para análise. Controles dedicados de TTS, geração de imagem, transcrição, embeddings e vídeo ainda precisam ser adicionados às telas de fluxo correspondentes.
+- **YouTube:** a URL é registrada como referência; o aplicativo não baixa vídeos do YouTube. Importe mídia local que você tenha direito de utilizar.
+- **Narração:** a prévia de voz atual usa SpeechSynthesis do navegador e não gera MP3 automaticamente. O gateway de TTS está preparado, mas ainda não existe botão de geração/seleção de voz na interface.
+- **MP4/FFmpeg:** a linha do tempo organiza cenas, mas não renderiza MP4. Isso exige worker de renderização, fila e armazenamento de mídia.
+- **Memória:** continua salva no localStorage do navegador e não sincroniza entre dispositivos.
+- **Legendas:** WebVTT usa tempos estimados por frase, não alinhamento palavra a palavra.
 
 ## Segurança e direitos
 
-Use somente vídeos, imagens, áudio e materiais próprios, licenciados ou cujo uso você esteja autorizado a fazer. Alterar metadados não muda autoria nem direitos sobre o conteúdo.
-
-## Próximas integrações para uma versão de produção
-
-1. Backend de projetos e banco persistente por usuário.
-2. Worker de ingestão de mídia autorizada e FFmpeg com fila, progresso e cancelamento.
-3. Provedor TTS com geração de MP3/WAV e vozes pt-BR.
-4. Timeline com tempos reais por cena, trilhas, zoom/pan e transições.
-5. Renderização 16:9 e 9:16, com testes automatizados de arquivos exportados.
+Use apenas mídia própria, licenciada ou cujo uso esteja autorizado. A função proxy não guarda a chave OpenRouter; mantenha o controle de custos e limites da sua conta OpenRouter.
