@@ -79,6 +79,11 @@ function Studio() {
   const [renderedType, setRenderedType] = useState("");
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [hideWatermark, setHideWatermark] = useState(false);
+  const [markX, setMarkX] = useState(80);
+  const [markY, setMarkY] = useState(85);
+  const [markW, setMarkW] = useState(15);
+  const [markH, setMarkH] = useState(8);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const videoInput = useRef<HTMLInputElement>(null);
@@ -181,6 +186,17 @@ function Studio() {
         const x = (width - videoW) / 2;
         const y = (height - videoH) / 2;
         ctx.drawImage(video, x, y, videoW, videoH);
+
+        if (hideWatermark) {
+          const sx = (Math.max(0, Math.min(99, markX)) / 100) * video.videoWidth;
+          const sy = (Math.max(0, Math.min(99, markY)) / 100) * video.videoHeight;
+          const sw = (Math.max(1, Math.min(100 - markX, markW)) / 100) * video.videoWidth;
+          const sh = (Math.max(1, Math.min(100 - markY, markH)) / 100) * video.videoHeight;
+          ctx.save();
+          ctx.filter = "blur(14px)";
+          ctx.drawImage(video, sx, sy, sw, sh, x + sx * videoScale, y + sy * videoScale, sw * videoScale, sh * videoScale);
+          ctx.restore();
+        }
       };
 
       draw();
@@ -257,7 +273,7 @@ function Studio() {
         <span className="oneclick-status"><span/> PROCESSAMENTO LOCAL</span>
       </header>
       <main className="oneclick-main">
-        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Envie o vídeo e uma imagem PNG ou JPEG. O programa aplica a imagem como fundo ao redor do vídeo e exporta automaticamente, sem roteiro, IA, cortes ou efeitos no conteúdo.</p></div>
+        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Envie o vídeo e uma imagem PNG ou JPEG. O programa aplica a imagem como fundo ao redor do vídeo, permite desfocar a área da sua própria marca-d’água e limpa os metadados descritivos do contêiner.</p></div>
         <section className="oneclick-grid">
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileVideo/><div><strong>1. Vídeo original</strong><small>Selecione o arquivo completo</small></div></div>
@@ -275,6 +291,20 @@ function Studio() {
             <input ref={backgroundInput} type="file" accept="image/png,image/jpeg" hidden onChange={(event) => selectBackground(event.target.files?.[0])}/>
             {backgroundFile && <div className="oneclick-file"><Check size={15}/><span>{backgroundFile.name}</span><button onClick={() => { setBackgroundFile(null); setBackgroundPreview(""); setRenderedUrl(""); }} aria-label="Remover imagem"><X size={15}/></button></div>}
           </div>
+        </section>
+        <section className="oneclick-card" style={{ marginTop: 18 }}>
+          <div className="oneclick-card-title"><ShieldCheck/><div><strong>3. Ocultar sua marca-d’água</strong><small>Opcional · desfoque somente na área indicada</small></div></div>
+          <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "14px 0" }}>
+            <input type="checkbox" checked={hideWatermark} onChange={(event) => setHideWatermark(event.target.checked)} disabled={busy}/>
+            Ocultar marca-d’água própria neste vídeo
+          </label>
+          {hideWatermark && <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+            <label>Esquerda (%)<input type="number" min="0" max="99" value={markX} disabled={busy} onChange={(event) => setMarkX(Number(event.target.value))}/></label>
+            <label>Topo (%)<input type="number" min="0" max="99" value={markY} disabled={busy} onChange={(event) => setMarkY(Number(event.target.value))}/></label>
+            <label>Largura (%)<input type="number" min="1" max="100" value={markW} disabled={busy} onChange={(event) => setMarkW(Number(event.target.value))}/></label>
+            <label>Altura (%)<input type="number" min="1" max="100" value={markH} disabled={busy} onChange={(event) => setMarkH(Number(event.target.value))}/></label>
+          </div>}
+          <p style={{ opacity: .72, fontSize: 12, marginTop: 10 }}>Informe a posição e o tamanho aproximados da sua marca em porcentagem do quadro original. O programa aplica desfoque nessa região; não reconstrói os pixels que estavam atrás do logotipo. Ajuste os valores para cada canal.</p>
         </section>
         <section className="oneclick-preview">
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A imagem enviada ocupa o fundo; o vídeo fica centralizado e dimensionado sem cortar a imagem original.</p></div>
