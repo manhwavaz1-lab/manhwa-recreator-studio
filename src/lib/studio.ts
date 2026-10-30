@@ -73,11 +73,25 @@ export async function askOpenRouter(args: {
   throw new Error("O modelo não retornou texto.");
 }
 
-/** OpenRouter modality gateway for future UI workflows: image generation, TTS, STT, embeddings and video. */
-export async function openRouterTask<T = unknown>(apiKey: string, endpoint:
+/** OpenRouter modality gateway: image generation, TTS, STT, embeddings and video. */
+export async function openRouterTask(apiKey: string, endpoint:
   "/images" | "/audio/speech" | "/audio/transcriptions" | "/embeddings" | "/videos" | "/chat/completions",
-  body: Record<string, unknown>) {
-  return callProxy<T>(apiKey, "/"+endpoint.replace(/^\//, ""), body);
+  body: Record<string, unknown>): Promise<unknown> {
+  if (endpoint === "/audio/speech") {
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const publicKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!baseUrl || !publicKey) throw new Error("Backend Lovable Cloud não configurado.");
+    const response = await fetch(baseUrl.replace(/\\/$/, "") + OPENROUTER_PROXY, {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: publicKey },
+      body: JSON.stringify({ apiKey, path: endpoint, body }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(payload.error || "Falha ao gerar áudio (" + response.status + ").");
+    }
+    return await response.blob();
+  }
+  return callProxy<unknown>(apiKey, endpoint, body);
 }
 
 export function extractJson<T>(text: string): T {
