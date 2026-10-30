@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AudioLines, BookOpen, BrainCircuit, Check, ChevronDown, CircleHelp,
+  Activity, AudioLines, BookOpen, BrainCircuit, Check, ChevronDown,
   Clapperboard, Cloud, Download, FileImage, FileVideo, Film, FolderOpen, KeyRound,
-  Layers3, LoaderCircle, LockKeyhole, Menu, MessageSquareText, Mic2, Play, Plus,
+  Layers3, LoaderCircle, LockKeyhole, MessageSquareText, Mic2, Play, Plus,
   ScanEye, Settings2, ShieldCheck, Sparkles, Upload, WandSparkles, X
 } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
@@ -31,7 +31,6 @@ function Studio() {
   const [assets, setAssets] = useState<string[]>([]);
   const [assetNames, setAssetNames] = useState<string[]>([]);
   const [videoName, setVideoName] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [message, setMessage] = useState("");
@@ -41,7 +40,6 @@ function Studio() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [showKey, setShowKey] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     setApiKey(getStoredApiKey());
@@ -60,7 +58,7 @@ function Studio() {
   useEffect(() => { saveStoryMemory(memory); }, [memory]);
 
   const selectedModel = useMemo(() => models.find((item) => item.id === model), [models, model]);
-  const canAnalyze = Boolean(apiKey.trim() && model.trim() && (assets.length || youtubeUrl.trim()));
+  const canAnalyze = Boolean(apiKey.trim() && model.trim() && assets.length > 0);
 
   async function loadModels() {
     if (!apiKey.trim()) { setError("Insira sua chave OpenRouter primeiro."); return; }
@@ -92,7 +90,6 @@ function Studio() {
 
   async function captureVideoFrames(file: File) {
     const url = URL.createObjectURL(file);
-    setVideoUrl(url);
     setVideoName(file.name);
     const video = document.createElement("video");
     video.preload = "metadata";
@@ -142,7 +139,7 @@ function Studio() {
   }
 
   async function analyze() {
-    if (!canAnalyze) { setError("Informe a chave, escolha um modelo e adicione um vídeo ou imagens."); return; }
+    if (!canAnalyze) { setError("Informe a chave, escolha um modelo e envie um vídeo ou imagens. O link do YouTube é apenas uma referência."); return; }
     setBusy(true); setBusyLabel("Analisando quadros e continuidade…"); setError(""); setMessage("");
     try {
       const system = [
