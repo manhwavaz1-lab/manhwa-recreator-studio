@@ -34,18 +34,11 @@ export function saveStoryMemory(memory: StoryMemory) {
   if (typeof window !== "undefined") window.localStorage.setItem(MEMORY_KEY, JSON.stringify(memory));
 }
 
-const OPENROUTER_PROXY = "/functions/v1/openrouter-proxy";
-
-async function callProxy<T>(apiKey: string, path: string, body?: unknown, method = "POST"): Promise<T> {
-  const baseUrl = import.meta.env["VITE_SUPABASE_URL"];
-  const publicKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || import.meta.env["VITE_SUPABASE_ANON_KEY"];
-  if (!baseUrl || !publicKey) {
-    throw new Error("Backend Lovable Cloud não configurado. Conecte o projeto ao Lovable Cloud/Supabase e verifique VITE_SUPABASE_URL e a chave pública.");
-  }
-  const response = await fetch(baseUrl.replace(/\/$/, "") + OPENROUTER_PROXY, {
+async function callProxy<T>(apiKey: string, path: string, body?: unknown): Promise<T> {
+  const response = await fetch("/api/openrouter", {
     method: "POST",
-    headers: { "Content-Type": "application/json", apikey: publicKey },
-    body: JSON.stringify({ apiKey, path, method, body }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey, path, body }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: string; message?: string };
@@ -55,7 +48,7 @@ async function callProxy<T>(apiKey: string, path: string, body?: unknown, method
 }
 
 export async function fetchOpenRouterModels(apiKey: string): Promise<StudioModel[]> {
-  const payload = await callProxy<{ data?: StudioModel[] }>(apiKey, "/models", undefined, "GET");
+  const payload = await callProxy<{ data?: StudioModel[] }>(apiKey, "/models");
   return payload.data ?? [];
 }
 
@@ -82,11 +75,9 @@ export async function openRouterTask(apiKey: string, endpoint:
   "/images" | "/audio/speech" | "/audio/transcriptions" | "/embeddings" | "/videos" | "/chat/completions",
   body: Record<string, unknown>): Promise<unknown> {
   if (endpoint === "/audio/speech") {
-    const baseUrl = import.meta.env["VITE_SUPABASE_URL"];
-    const publicKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || import.meta.env["VITE_SUPABASE_ANON_KEY"];
-    if (!baseUrl || !publicKey) throw new Error("Backend Lovable Cloud não configurado.");
-    const response = await fetch(baseUrl.replace(/\/$/, "") + OPENROUTER_PROXY, {
-      method: "POST", headers: { "Content-Type": "application/json", apikey: publicKey },
+    const response = await fetch("/api/openrouter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey, path: endpoint, body }),
     });
     if (!response.ok) {
