@@ -277,3 +277,51 @@ h1 span { color: var(--red-2); }
 .project-actions .outline-button { white-space: nowrap; }
 @media (max-width: 1100px) { .project-actions { grid-column: 1 / -1; justify-content: flex-end; } }
 @media (max-width: 760px) { .project-actions { width: 100%; justify-content: stretch; } .project-actions .outline-button { flex: 1; justify-content: center; } }
+
+
+/* One-click video frame workflow */
+.oneclick-shell { min-height:100vh; background:radial-gradient(ellipse at 50% -15%,#f044521c,transparent 42%),#090a0d; color:#f3f4f6; }
+.oneclick-header { height:76px; padding:0 max(24px,calc((100vw - 1120px)/2)); border-bottom:1px solid #292e39; display:flex; align-items:center; justify-content:space-between; }
+.oneclick-brand { display:flex; align-items:center; gap:11px; }
+.oneclick-mark { width:38px;height:38px;display:grid;place-items:center;border-radius:10px;background:linear-gradient(135deg,#f04452,#a71926);font-weight:900;font-size:21px; }
+.oneclick-brand strong,.oneclick-brand small { display:block;letter-spacing:.12em; }
+.oneclick-brand strong {font-size:11px}.oneclick-brand small {font-size:8px;color:#838c99;margin-top:4px}
+.oneclick-status {font-size:9px;color:#8d98a8;letter-spacing:.1em;display:flex;align-items:center;gap:8px}
+.oneclick-status span {width:7px;height:7px;border-radius:50%;background:#51d69a;box-shadow:0 0 12px #51d69a77}
+.oneclick-main {width:min(100% - 40px,980px);margin:0 auto;padding:54px 0 40px}
+.oneclick-intro {max-width:730px;margin-bottom:30px}
+.oneclick-eyebrow {font-size:9px;font-weight:800;letter-spacing:.17em;color:#f16a75}
+.oneclick-intro h1 {font-size:clamp(32px,5vw,52px);line-height:1.08;letter-spacing:-.045em;margin:12px 0}
+.oneclick-intro h1 em {font-style:normal;color:#f04452}
+.oneclick-intro p {font-size:13px;line-height:1.8;color:#9ba4b2;max-width:690px;margin:0}
+.oneclick-grid {display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.oneclick-card,.oneclick-preview,.oneclick-result {border:1px solid #2b313d;border-radius:12px;background:#11141a;padding:18px}
+.oneclick-card-title {display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.oneclick-card-title>svg {color:#f16a75;width:19px;height:19px}
+.oneclick-card-title strong,.oneclick-card-title small {display:block}
+.oneclick-card-title strong {font-size:12px}.oneclick-card-title small {font-size:9px;color:#818b9a;margin-top:4px}
+.oneclick-drop {width:100%;height:205px;border:1px dashed #414958;border-radius:9px;background:#0b0d12;color:#aeb6c4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;overflow:hidden}
+.oneclick-drop>svg {width:25px;height:25px;color:#f16a75}
+.oneclick-drop strong {font-size:11px;color:#e6e9ef}.oneclick-drop small {font-size:9px;color:#818b9a}
+.oneclick-drop img,.oneclick-drop video {width:100%;height:100%;object-fit:contain;background:#07080b}
+.oneclick-file {display:flex;align-items:center;gap:8px;margin-top:10px;color:#71d9a7;font-size:9px}
+.oneclick-file span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;color:#aeb6c4}
+.oneclick-file button {border:0;background:none;color:#929baa;padding:4px}
+.oneclick-preview {margin-top:16px;display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:center}
+.oneclick-preview p {font-size:9px;line-height:1.7;color:#8d97a6;margin:8px 0 0}
+.oneclick-composite {width:100%;aspect-ratio:16/9;max-height:300px;background-size:cover;background-position:center;display:grid;place-items:center;overflow:hidden;border-radius:8px;border:1px solid #3a414e}
+.oneclick-composite video {width:84%;height:84%;object-fit:contain;background:#050608}
+.oneclick-empty {min-height:160px;border:1px dashed #3b4350;border-radius:8px;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;color:#778191;font-size:10px}
+.oneclick-empty svg {color:#f16a75}
+.oneclick-create {width:100%;min-height:58px;margin-top:20px;border:0;border-radius:9px;background:linear-gradient(110deg,#f04452,#b91f35);color:white;font-weight:850;font-size:12px;letter-spacing:.07em;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 10px 30px #e33a4a2b}
+.oneclick-create:disabled {opacity:.5;cursor:not-allowed}.oneclick-create svg {width:18px;height:18px}.oneclick-create span {font-size:18px}
+.oneclick-progress {height:5px;background:#252b35;border-radius:8px;overflow:hidden;margin-top:10px}.oneclick-progress span {display:block;height:100%;background:#f04452;transition:width .2s}
+.oneclick-alert {display:flex;align-items:center;gap:9px;padding:12px 14px;border-radius:8px;margin-top:14px;font-size:10px;line-height:1.6}
+.oneclick-alert.error {background:#f0445215;border:1px solid #f0445244;color:#ff9aa2}.oneclick-alert.success {background:#35b98112;border:1px solid #35b98140;color:#81dcb2}
+.oneclick-result {margin-top:18px;display:grid;gap:12px}.oneclick-result strong,.oneclick-result small {display:block}.oneclick-result strong {font-size:15px;margin-top:6px}.oneclick-result small {font-size:9px;color:#8993a2;margin-top:5px}.oneclick-result video {width:100%;max-height:440px;background:#050608;border-radius:8px}
+.oneclick-download {justify-self:start;display:inline-flex;align-items:center;gap:8px;color:white;background:#242a35;border:1px solid #3b4350;border-radius:7px;padding:10px 13px;text-decoration:none;font-size:10px}
+.oneclick-notes {display:flex;gap:11px;align-items:flex-start;margin-top:18px;padding:14px;border:1px solid #3b4350;background:#ffffff05;border-radius:8px;color:#a9b1bf}
+.oneclick-notes>svg {width:18px;min-width:18px;color:#74d6a8}.oneclick-notes p {font-size:9px;line-height:1.7;margin:0}.oneclick-notes strong {color:#dce1e9}
+.oneclick-footer {border-top:1px solid #242a33;text-align:center;padding:18px;color:#697383;font-size:8px;letter-spacing:.13em}.oneclick-footer span {color:#f04452;padding:0 7px}
+.oneclick-spin {animation:oneclick-rotate 1s linear infinite}@keyframes oneclick-rotate {to{transform:rotate(360deg)}}
+@media(max-width:700px){.oneclick-header{padding:0 16px}.oneclick-main{width:calc(100% - 28px);padding-top:35px}.oneclick-grid{grid-template-columns:1fr}.oneclick-preview{grid-template-columns:1fr}.oneclick-preview>div:first-child{max-width:100%}.oneclick-status{font-size:7px}.oneclick-drop{height:180px}}
