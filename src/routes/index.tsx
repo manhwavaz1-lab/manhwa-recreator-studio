@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  askOpenRouter, buildWebVtt, downloadText, extractJson, fetchOpenRouterModels,
+  askOpenRouter, buildWebVtt, downloadText, extractJson, fetchOpenRouterModels, openRouterTask,
   getStoredApiKey, loadStoryMemory, saveStoryMemory, storeApiKey,
   type CharacterMemory, type EpisodeMemory, type StoryMemory, type StudioModel
 } from "../lib/studio";
@@ -39,6 +39,9 @@ function Studio() {
   const [voice, setVoice] = useState("");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [showKey, setShowKey] = useState(false);
+  const [ttsModel, setTtsModel] = useState("");
+  const [ttsVoice, setTtsVoice] = useState("alloy");
+  const [ttsBusy, setTtsBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -205,6 +208,29 @@ function Studio() {
 
   function stopNarration() { if ("speechSynthesis" in window) window.speechSynthesis.cancel(); }
 
+  async function generateMp3() {
+    if (!apiKey.trim() || !ttsModel.trim() || !analysis?.script.trim()) {
+      setError("Informe a chave OpenRouter, o ID de um modelo TTS compatível e gere um roteiro.");
+      return;
+    }
+    setTtsBusy(true); setError(""); setMessage("");
+    try {
+      const audio = await openRouterTask(apiKey.trim(), "/audio/speech", {
+        model: ttsModel.trim(), input: analysis.script, voice: ttsVoice.trim() || "alloy", response_format: "mp3",
+      });
+      if (!(audio instanceof Blob)) throw new Error("O endpoint TTS não retornou um arquivo de áudio.");
+      const url = URL.createObjectURL(audio);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = projectName.replace(/[^a-z0-9-_]+/gi, "-") + "-narracao.mp3";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage("Narração MP3 gerada pelo OpenRouter.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao gerar narração MP3.");
+    } finally { setTtsBusy(false); }
+  }
+
   function exportProject() {
     const payload = { version: "4.0", projectName, sourceUrl: youtubeUrl, analysis, memory, exportedAt: new Date().toISOString() };
     downloadText(projectName.replace(/[^a-z0-9-_]+/gi, "-") + "-projeto.json", JSON.stringify(payload, null, 2), "application/json");
@@ -297,7 +323,7 @@ function Studio() {
               <div className="panel result-panel">
                 <div className="result-header"><div><div className="eyebrow">NARRATIVA DO EPISÓDIO</div><h2>{analysis.title}</h2></div><button className="outline-button" onClick={saveEpisode}><BookOpen size={15}/> Salvar na memória</button></div>
                 <p className="synopsis">{analysis.synopsis}</p>
-                <div className="result-columns"><div><h3><MessageSquareText size={16}/> Roteiro original</h3><textarea className="script-editor" value={analysis.script} onChange={(event) => setAnalysis({ ...analysis, script: event.target.value })}/><div className="script-actions"><div className="voice-select"><Mic2 size={15}/><select value={voice} onChange={(event) => setVoice(event.target.value)}><option value="">Voz padrão do navegador</option>{voices.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></div><button className="outline-button" onClick={previewNarration}><Play size={14}/> Ouvir prévia</button><button className="icon-button" onClick={stopNarration} title="Parar"><X size={16}/></button></div><p className="helper">Prévia usa a síntese de voz instalada no navegador. Para gerar um arquivo de narração MP3 será necessário conectar um serviço TTS.</p></div>
+                <div className="result-columns"><div><h3><MessageSquareText size={16}/> Roteiro original</h3><textarea className="script-editor" value={analysis.script} onChange={(event) => setAnalysis({ ...analysis, script: event.target.value })}/><div className="script-actions"><div className="voice-select"><Mic2 size={15}/><select value={voice} onChange={(event) => setVoice(event.target.value)}><option value="">Voz padrão do navegador</option>{voices.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></div><button className="outline-button" onClick={previewNarration}><Play size={14}/> Ouvir prévia</button><button className="icon-button" onClick={stopNarration} title="Parar"><X size={16}/></button></div><p className="helper">A prévia usa a voz instalada no navegador. Para gerar MP3 pelo OpenRouter, selecione um modelo compatível com áudio.</p><div className="script-actions"><input className="tts-model-input" value={ttsModel} onChange={(event) => setTtsModel(event.target.value)} list="openrouter-tts-models" placeholder="ID do modelo TTS (ex.: openai/gpt-4o-mini-tts)"/><datalist id="openrouter-tts-models">{models.filter((item) => item.architecture?.output_modalities?.includes("audio")).map((item) => <option key={item.id} value={item.id}/>)}</datalist><input className="tts-voice-input" value={ttsVoice} onChange={(event) => setTtsVoice(event.target.value)} placeholder="Voz (ex.: alloy)"/><button className="outline-button" onClick={generateMp3} disabled={ttsBusy || !apiKey.trim() || !ttsModel.trim()}>{ttsBusy ? <LoaderCircle className="spin" size={14}/> : <AudioLines size={14}/>} Gerar narração MP3</button></div></div>
                 <div><h3><ScanEye size={16}/> Cenas identificadas</h3><div className="scene-list">{analysis.scenes.map((scene) => <div className="scene-item" key={scene.order}><div className="scene-number">{String(scene.order).padStart(2, "0")}</div><div><strong>{scene.description}</strong><p>{scene.narration}</p><small>{scene.movement}</small></div></div>)}</div></div></div>
                 {analysis.continuityNotes?.length > 0 && <div className="continuity-box"><strong><BrainCircuit size={15}/> Pontos de continuidade</strong><ul>{analysis.continuityNotes.map((note, index) => <li key={index}>{note}</li>)}</ul></div>}
                 <div className="result-footer"><button className="outline-button" onClick={() => downloadText("legendas.vtt", buildWebVtt(analysis.script), "text/vtt") }><Download size={15}/> Exportar legendas VTT</button><button className="outline-button" onClick={exportProject}><Download size={15}/> Exportar projeto JSON</button></div>
