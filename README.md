@@ -5,14 +5,14 @@ Aplicação web para produção de recaps de Manhwa, com análise visual, roteir
 ## Funcionalidades
 
 - Interface responsiva de estúdio e nome de projeto.
-- Importação local de vídeo para extração de quadros no navegador ou até 8 imagens.
+- Importação por seleção ou arrastar/soltar de vídeos e imagens; vídeos são amostrados em até 8 quadros e imagens verticais longas são divididas automaticamente em segmentos.
 - Catálogo dinâmico de modelos OpenRouter, com metadados de modalidades, contexto e parâmetros suportados.
 - Análise visual por modelos com entrada de imagem.
 - Geração de sinopse, personagens, cenas, movimentos de câmera, roteiro e notas de continuidade.
-- Memória narrativa local (personagens, episódios e lore).
+- Memória narrativa local (personagens, episódios e lore).\n- Salvamento e restauração do projeto ativo no IndexedDB, incluindo imagens, roteiro e configurações.
 - Exportação de projeto JSON e legendas WebVTT.
 - Proxy OpenRouter em rota de servidor nativa do TanStack Start (`/api/openrouter`), executada no backend do app publicado pelo Lovable.
-- Gateway backend para chat/visão, geração de imagens, TTS, transcrição, embeddings e vídeo, respeitando os endpoints específicos de cada modalidade.
+- Geração de narração MP3 pelo endpoint TTS OpenRouter, com descoberta de modelos de áudio no catálogo.\n- Renderizador real no navegador: compõe quadros, movimento suave, títulos e legendas; sincroniza MP3 TTS quando anexado e exporta MP4 se o navegador suportar o codec, ou WebM como alternativa.
 
 ## Configuração no Lovable
 
@@ -43,11 +43,11 @@ A rota de proxy é servida pelo próprio `npm run dev` e pelo servidor implantad
 
 ## Limitações conhecidas
 
-- **Modelos e modalidades:** a disponibilidade depende do catálogo OpenRouter e do modelo/provedor. A existência de um endpoint não significa que todo modelo o suporte. O gateway de modalidades está disponível no serviço; a interface atual usa chat/visão para análise e já inclui controle de geração de narração MP3 por TTS. Geração de imagem, transcrição, embeddings e vídeo estão disponíveis no gateway de serviço, mas ainda precisam de controles dedicados nas telas correspondentes.
+- **Modelos e modalidades:** a disponibilidade depende do catálogo OpenRouter e do modelo/provedor. A existência de um endpoint não significa que todo modelo o suporte. O gateway de modalidades está disponível no serviço; a interface atual usa chat/visão para análise e já inclui controle de geração de narração MP3 por TTS. Geração de imagem, transcrição e embeddings ainda não têm fluxos dedicados na interface. A geração de vídeo final é feita pelo renderizador Canvas/MediaRecorder do navegador.
 - **YouTube:** a URL é registrada como referência; o aplicativo não baixa vídeos do YouTube. Importe mídia local que você tenha direito de utilizar.
 - **Narração:** a prévia usa SpeechSynthesis do navegador. A geração de MP3 usa o endpoint TTS do OpenRouter e exige informar um ID de modelo TTS compatível e uma voz aceita por esse modelo.
-- **MP4/FFmpeg:** a linha do tempo organiza cenas, mas não renderiza MP4. Isso exige worker de renderização, fila e armazenamento de mídia.
-- **Memória:** continua salva no localStorage do navegador e não sincroniza entre dispositivos.
+- **Formato de vídeo:** a renderização atual usa Canvas + MediaRecorder no navegador. Chrome/Edge normalmente exportam WebM; MP4 só é gerado se o navegador oferecer gravação nativa nesse formato. Ainda não existe conversão FFmpeg para garantir MP4 H.264 em todos os navegadores.
+- **Memória narrativa:** salva no localStorage do navegador. O projeto ativo (roteiro, quadros e configurações) é salvo no IndexedDB. Ambos são locais ao dispositivo e não sincronizam entre dispositivos.
 - **Legendas:** WebVTT usa tempos estimados por frase, não alinhamento palavra a palavra.
 
 ## Segurança e direitos
