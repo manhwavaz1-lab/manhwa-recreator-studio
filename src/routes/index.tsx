@@ -86,6 +86,9 @@ function Studio() {
   const [markY, setMarkY] = useState(85);
   const [markW, setMarkW] = useState(15);
   const [markH, setMarkH] = useState(8);
+  const [videoZoom, setVideoZoom] = useState(100);
+  const [videoOffsetX, setVideoOffsetX] = useState(0);
+  const [videoOffsetY, setVideoOffsetY] = useState(0);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -192,11 +195,11 @@ function Studio() {
         // nas bordas para evitar barras pretas e vídeo pequeno no centro.
         const safeW = width * 0.84;
         const safeH = height * 0.84;
-        const videoScale = Math.max(safeW / video.videoWidth, safeH / video.videoHeight);
+        const videoScale = Math.max(safeW / video.videoWidth, safeH / video.videoHeight) * (videoZoom / 100);
         const videoW = video.videoWidth * videoScale;
         const videoH = video.videoHeight * videoScale;
-        const x = (width - videoW) / 2;
-        const y = (height - videoH) / 2;
+        const x = (width - videoW) / 2 + (videoOffsetX / 100) * safeW * 0.5;
+        const y = (height - videoH) / 2 + (videoOffsetY / 100) * safeH * 0.5;
         ctx.save();
         ctx.beginPath();
         ctx.rect((width - safeW) / 2, (height - safeH) / 2, safeW, safeH);
@@ -334,9 +337,18 @@ function Studio() {
           </div>}
           <p style={{ opacity: .72, fontSize: 12, marginTop: 10 }}>Informe a posição e o tamanho aproximados da sua marca em porcentagem do quadro original. O programa aplica desfoque nessa região; não reconstrói os pixels que estavam atrás do logotipo. Ajuste os valores para cada canal.</p>
         </section>
+        <section className="oneclick-card" style={{ marginTop: 16 }}>
+          <div className="oneclick-card-title"><FileVideo/><div><strong>AJUSTAR ENQUADRAMENTO</strong><small>Controle o zoom e mova o vídeo dentro da moldura</small></div></div>
+          <div className="framing-controls">
+            <label>Zoom <strong>{videoZoom}%</strong><input aria-label="Zoom do vídeo" type="range" min="100" max="200" step="1" value={videoZoom} disabled={busy} onChange={(event) => setVideoZoom(Number(event.target.value))}/></label>
+            <label>Posição horizontal <strong>{videoOffsetX > 0 ? "+" : ""}{videoOffsetX}</strong><input aria-label="Posição horizontal do vídeo" type="range" min="-50" max="50" step="1" value={videoOffsetX} disabled={busy} onChange={(event) => setVideoOffsetX(Number(event.target.value))}/></label>
+            <label>Posição vertical <strong>{videoOffsetY > 0 ? "+" : ""}{videoOffsetY}</strong><input aria-label="Posição vertical do vídeo" type="range" min="-50" max="50" step="1" value={videoOffsetY} disabled={busy} onChange={(event) => setVideoOffsetY(Number(event.target.value))}/></label>
+            <button type="button" className="outline-button" disabled={busy} onClick={() => { setVideoZoom(100); setVideoOffsetX(0); setVideoOffsetY(0); }}>REDEFINIR</button>
+          </div>
+        </section>
         <section className="oneclick-preview">
-          <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A moldura define o formato final. O vídeo preenche melhor a janela central, sem barras pretas; somente o excesso das bordas é recortado.</p></div>
-          {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")"}}><video src={videoPreview} muted playsInline/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
+          <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>Use os controles acima para ampliar e reposicionar o vídeo. O enquadramento ajustado será aplicado também ao arquivo exportado.</p></div>
+          {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")"}}><video src={videoPreview} muted playsInline style={{ transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
         <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
