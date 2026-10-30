@@ -164,7 +164,7 @@ def create_download_job(payload: DownloadRequest, request: Request, background_t
     check_rate_limit(request.client.host if request.client else "unknown")
     now = time.time()
     with jobs_lock:
-        expired = [job_id for job_id, job in jobs.items() if now - job["created_at"] > JOB_TTL_SECONDS]
+        expired = [job_id for job_id, job in jobs.items() if job["status"] in {"completed", "error"} and now - job["created_at"] > JOB_TTL_SECONDS]
     for job_id in expired:
         cleanup_job(job_id)
     job_id = uuid.uuid4().hex
