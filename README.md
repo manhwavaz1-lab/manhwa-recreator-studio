@@ -15,7 +15,7 @@ O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e
 
 ## Backend do YouTube
 
-O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, e aceita vídeos públicos e não listados, inclusive Shorts. Playlists são recusadas; vídeos privados ou que exijam autenticação dependem de acesso permitido pelo YouTube. O limite configurado é de 4 horas e 2 GB por arquivo. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
+O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, e aceita vídeos públicos e não listados, inclusive Shorts. Playlists são recusadas; vídeos privados ou que exijam autenticação dependem de acesso permitido pelo YouTube. O limite configurado é de 2 GB por arquivo; a duração não é limitada pelo aplicativo, mas vídeos longos podem exceder esse limite de tamanho ou os recursos disponíveis no Render. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
 
 ### Implantar no Render
 
