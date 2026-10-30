@@ -121,6 +121,28 @@ function Studio() {
     URL.revokeObjectURL(url);
   }
 
+  async function readImageSegments(file: File): Promise<{ data: string[]; names: string[] }> {
+    const source = await readImage(file);
+    const image = new Image();
+    image.src = source;
+    await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("Não foi possível decodificar " + file.name)); });
+    if (image.height / image.width < 1.55) return { data: [source], names: [file.name] };
+    const sliceHeight = Math.round(image.width * 1.42);
+    const data: string[] = []; const names: string[] = [];
+    for (let y = 0, index = 0; y < image.height && data.length < 8; y += sliceHeight, index++) {
+      const height = Math.min(sliceHeight, image.height - y);
+      if (height < image.width * 0.32 && data.length) break;
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width; canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas indisponível para dividir a página vertical.");
+      context.drawImage(image, 0, y, image.width, height, 0, 0, image.width, height);
+      data.push(canvas.toDataURL("image/jpeg", 0.88));
+      names.push(file.name + " · parte " + (index + 1));
+    }
+    return { data, names };
+  }
+
   async function handleFiles(files: FileList | File[]) {
     const selected = Array.from(files);
     if (!selected.length) return;
@@ -132,11 +154,13 @@ function Studio() {
         setMessage("3 quadros de referência extraídos do vídeo. O arquivo original permanece no seu computador.");
       } else {
         const images = selected.filter((file) => file.type.startsWith("image/")).slice(0, 8);
-        const data = await Promise.all(images.map(readImage));
-        setAssets(data);
-        setAssetNames(images.map((file) => file.name));
+        const processed = await Promise.all(images.map(readImageSegments));
+        const combined = processed.flatMap((item) => item.data).slice(0, 8);
+        const names = processed.flatMap((item) => item.names).slice(0, 8);
+        setAssets(combined);
+        setAssetNames(names);
         setVideoName("");
-        setMessage(images.length + " imagens adicionadas para análise.");
+        setMessage(combined.length + " quadros prontos. Imagens verticais longas foram divididas automaticamente em segmentos.");
       }
     } catch (err) { setError(err instanceof Error ? err.message : "Falha ao importar mídia."); }
   }
