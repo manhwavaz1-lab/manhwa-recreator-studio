@@ -21,15 +21,30 @@ Deno.serve(async (request) => {
     if (!apiKey || !apiKey.startsWith("sk-or-")) return json({ error: "Informe uma chave OpenRouter válida." }, 400);
     if (!allowedPaths.has(path)) return json({ error: "OpenRouter endpoint not allowed." }, 400);
     const method = path === "/models" ? "GET" : "POST";
+    const headers: Record<string, string> = {
+      Authorization: "Bearer " + apiKey,
+      "HTTP-Referer": request.headers.get("origin") || "https://lovable.app",
+      "X-Title": "Manhwa Recreator Studio",
+    };
+    let upstreamBody: BodyInit | undefined;
+    if (method === "POST") {
+      if (path === "/audio/transcriptions") {
+        const audio = input.body as { fileBase64?: string; filename?: string; model?: string; language?: string; prompt?: string };
+        if (!audio.fileBase64 || !audio.model) return json({ error: "Transcription requires fileBase64 and model." }, 400);
+        const binary = Uint8Array.from(atob(audio.fileBase64), (char) => char.charCodeAt(0));
+        const form = new FormData();
+        form.append("file", new Blob([binary]), audio.filename || "audio.mp3");
+        form.append("model", audio.model);
+        if (audio.language) form.append("language", audio.language);
+        if (audio.prompt) form.append("prompt", audio.prompt);
+        upstreamBody = form;
+      } else {
+        headers["Content-Type"] = "application/json";
+        upstreamBody = JSON.stringify(input.body ?? {});
+      }
+    }
     const upstream = await fetch("https://openrouter.ai/api/v1" + path, {
-      method,
-      headers: {
-        Authorization: "Bearer " + apiKey,
-        "Content-Type": "application/json",
-        "HTTP-Referer": request.headers.get("origin") || "https://lovable.app",
-        "X-Title": "Manhwa Recreator Studio",
-      },
-      ...(method === "POST" ? { body: JSON.stringify(input.body ?? {}) } : {}),
+      method, headers, ...(upstreamBody ? { body: upstreamBody } : {}),
     });
     const contentType = upstream.headers.get("content-type") || "application/json";
     const data = await upstream.arrayBuffer();
