@@ -1,27 +1,32 @@
-# Manhwa Studio — Criador automático de moldura para vídeo
+# Manhwa Studio — Moldura, ocultação de marca própria e limpeza de metadados
 
-Aplicação web simples para aplicar uma imagem PNG ou JPEG como fundo/moldura ao redor de um vídeo, com exportação em um clique.
+Aplicação web para aplicar uma imagem PNG/JPEG como fundo ao redor de um vídeo, desfocar uma área de marca-d’água própria e limpar metadados descritivos do contêiner em um fluxo automatizado.
 
 ## Como usar
 
-1. Abra o aplicativo no navegador.
-2. Selecione o vídeo original.
-3. Selecione uma imagem PNG ou JPEG para usar como fundo/moldura.
+1. Selecione o vídeo original.
+2. Selecione a imagem PNG ou JPEG que será usada como fundo/moldura.
+3. Opcionalmente, ative **Ocultar sua marca-d’água** e informe a posição e o tamanho da região em porcentagem do quadro original. Esses valores podem ser ajustados para cada canal.
 4. Clique em **Criar vídeo com 1 clique**.
-5. O navegador reproduz o vídeo inteiro, compõe a imagem de fundo ao redor dele e inicia o download do resultado.
+5. Aguarde a composição e a etapa FFmpeg; o arquivo WebM final será baixado automaticamente.
 
 ## Processamento
 
-- Todo o processamento acontece localmente no navegador; os arquivos não são enviados ao servidor.
-- O vídeo é mantido integralmente: sem cortes, aceleração, filtros, legendas, narração ou comentários.
-- A imagem enviada preenche o fundo; o vídeo é centralizado e ajustado para caber sem cortar seu quadro.
-- A exportação atual usa MediaRecorder e gera WebM. O navegador decodifica e recodifica a faixa de vídeo para incorporar a moldura e também recodifica a faixa de áudio sem aplicar efeitos ou cortes.
-- Como o resultado é um novo arquivo/container, os metadados comuns do contêiner original não são copiados. Isso não remove necessariamente identificadores ou metadados que possam estar codificados no próprio conteúdo audiovisual.
-- A saída segue a orientação do vídeo original e usa resolução de até 1920 pixels no maior eixo.
+- A composição visual ocorre no navegador. O vídeo inteiro é reproduzido, sem cortes, aceleração, legendas, roteiro ou narração.
+- A imagem enviada preenche o fundo; o vídeo é centralizado e dimensionado sem cortar o quadro original.
+- A opção de marca-d’água aplica desfoque somente à região definida pelo usuário. Ela não reconstrói o cenário que existia atrás do logotipo; o resultado pode ficar visivelmente borrado.
+- A renderização inicial usa MediaRecorder e recodifica vídeo e áudio.
+- Em seguida, FFmpeg.wasm é carregado sob demanda a partir de CDN e remuxa o WebM com `-map_metadata -1`, `-map_chapters -1` e `-c copy`. Isso remove metadados descritivos do contêiner, como título, comentário, descrição, data e capítulos, sem recodificar novamente as faixas.
+- Informações técnicas necessárias para a reprodução — codec, dimensões, duração, timestamps e estrutura do contêiner — continuam presentes. Não é tecnicamente possível eliminar toda informação estrutural e ainda manter um arquivo de vídeo reproduzível.
+- Os arquivos de mídia permanecem no navegador; o CDN fornece apenas o código e o núcleo WebAssembly do FFmpeg.
+- A saída é WebM, com resolução de até 1920 pixels no maior eixo.
 
-## Limitações técnicas
+## Limitações
 
-A composição visual exige renderizar novamente o vídeo. MediaRecorder no navegador não oferece stream-copy de áudio bit a bit. Portanto, o áudio mantém a reprodução integral e não recebe cortes ou efeitos, mas passa por nova codificação. Para preservar exatamente os pacotes de áudio originais, seria necessário um pipeline FFmpeg com filtro de vídeo e `-c:a copy`; isso não está implementado nesta versão. A saída atual é WebM, não MP4.
+- A marca-d’água é desfocada, não removida por reconstrução/inpainting. Ajuste a região para cada vídeo/canal.
+- A composição recodifica a faixa de áudio e vídeo na primeira etapa; o FFmpeg usa cópia de fluxo na etapa de limpeza.
+- A execução do FFmpeg exige conexão com a internet na primeira carga do módulo. Se o CDN estiver indisponível, a limpeza falha e a exportação não é considerada concluída.
+- A saída atual é WebM, não MP4.
 
 ## Desenvolvimento
 
