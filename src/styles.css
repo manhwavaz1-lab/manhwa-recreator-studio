@@ -309,7 +309,7 @@ h1 span { color: var(--red-2); }
 .oneclick-file button {border:0;background:none;color:#929baa;padding:4px}
 .oneclick-preview {margin-top:16px;display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:center}
 .oneclick-preview p {font-size:9px;line-height:1.7;color:#8d97a6;margin:8px 0 0}
-.oneclick-composite {width:100%;aspect-ratio:16/9;max-height:300px;background-size:100% 100%;background-position:center;background-repeat:no-repeat;display:grid;place-items:center;overflow:hidden;border-radius:8px;border:1px solid #3a414e}
+.oneclick-composite {width:100%;aspect-ratio:16/9;background-size:100% 100%;background-position:center;background-repeat:no-repeat;display:grid;place-items:center;overflow:hidden;border-radius:8px;border:1px solid #3a414e}
 .oneclick-composite video {width:84%;height:84%;object-fit:cover;background:#050608}
 .oneclick-empty {min-height:160px;border:1px dashed #3b4350;border-radius:8px;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;color:#778191;font-size:10px}
 .oneclick-empty svg {color:#f16a75}
