@@ -11,20 +11,21 @@ Aplicação web para produção de recaps de Manhwa, com análise visual, roteir
 - Geração de sinopse, personagens, cenas, movimentos de câmera, roteiro e notas de continuidade.
 - Memória narrativa local (personagens, episódios e lore).
 - Exportação de projeto JSON e legendas WebVTT.
-- Proxy OpenRouter em Supabase Edge Function, compatível com Lovable Cloud.
+- Proxy OpenRouter em rota de servidor nativa do TanStack Start (`/api/openrouter`), executada no backend do app publicado pelo Lovable.
 - Gateway backend para chat/visão, geração de imagens, TTS, transcrição, embeddings e vídeo, respeitando os endpoints específicos de cada modalidade.
 
 ## Configuração no Lovable
 
-1. Abra o projeto no Lovable e conecte/ative **Lovable Cloud** (ou o projeto Supabase conectado).
-2. Confirme que o ambiente de build fornece `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` (ou `VITE_SUPABASE_ANON_KEY`). São valores públicos de conexão, não segredos.
-3. Sincronize este commit do GitHub no Lovable. A função `supabase/functions/openrouter-proxy/index.ts` deve ser publicada como Edge Function `openrouter-proxy`.
-4. Em Configurações do aplicativo, informe sua chave criada em https://openrouter.ai/keys e clique em **Atualizar modelos**.
-5. Para análise de quadros, selecione um modelo cuja arquitetura informe entrada `image`.
+1. Sincronize o projeto com este repositório no Lovable.
+2. Publique/republique o aplicativo para que a rota de servidor `/api/openrouter` seja implantada junto com o app.
+3. No aplicativo, informe sua chave criada em https://openrouter.ai/keys e clique em **Atualizar modelos**.
+4. Para análise de quadros, selecione um modelo cuja arquitetura informe entrada `image`.
+
+A integração OpenRouter não depende de `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` nem de uma Edge Function Supabase. A rota `/api/openrouter` faz a chamada no servidor TanStack Start do próprio aplicativo Lovable.
 
 A chave OpenRouter é mantida somente em memória durante a sessão do navegador e enviada ao proxy por HTTPS para a chamada correspondente. Ela não é gravada no localStorage, no repositório, nem em uma variável pública. Ao recarregar a página, informe-a novamente. O proxy não armazena a chave; ele a encaminha para OpenRouter.
 
-A função aceita somente endpoints OpenRouter explicitamente permitidos: `/models`, `/chat/completions`, `/images`, `/audio/speech`, `/audio/transcriptions`, `/embeddings` e `/videos`. Para transcrição, o cliente envia o áudio em base64 e a Edge Function converte para multipart/form-data. Para TTS, a resposta binária é devolvida como Blob.
+A rota do servidor aceita somente endpoints OpenRouter explicitamente permitidos: `/models`, `/chat/completions`, `/images`, `/audio/speech`, `/audio/transcriptions`, `/embeddings` e `/videos`. Para transcrição, o cliente envia o áudio em base64 e a rota de servidor converte para multipart/form-data. Para TTS, a resposta binária é devolvida como Blob.
 
 ## Desenvolvimento local
 
@@ -38,7 +39,7 @@ npm test
 npm run build
 ```
 
-Para executar localmente o proxy, conecte o Supabase CLI ao mesmo projeto e publique/execute a função com a configuração de `supabase/config.toml`.
+A rota de proxy é servida pelo próprio `npm run dev` e pelo servidor implantado com `npm run build`.
 
 ## Limitações conhecidas
 
@@ -51,4 +52,4 @@ Para executar localmente o proxy, conecte o Supabase CLI ao mesmo projeto e publ
 
 ## Segurança e direitos
 
-Use apenas mídia própria, licenciada ou cujo uso esteja autorizado. A função proxy não guarda a chave OpenRouter; mantenha o controle de custos e limites da sua conta OpenRouter.
+Use apenas mídia própria, licenciada ou cujo uso esteja autorizado. A rota proxy não guarda a chave OpenRouter; mantenha o controle de custos e limites da sua conta OpenRouter.
