@@ -78,6 +78,8 @@ function Studio() {
   const [videoPreview, setVideoPreview] = useState("");
   const [backgroundPreview, setBackgroundPreview] = useState("");
   const [backgroundAspectRatio, setBackgroundAspectRatio] = useState("16 / 9");
+  const [outputFormat, setOutputFormat] = useState<"16:9" | "9:16">("16:9");
+  const [outputResolution, setOutputResolution] = useState<"1080p" | "4K">("1080p");
   const [renderedUrl, setRenderedUrl] = useState("");
   const [renderedType, setRenderedType] = useState("");
   const [progress, setProgress] = useState(0);
@@ -181,10 +183,11 @@ function Studio() {
         throw new Error("O vídeo não possui duração ou dimensões válidas.");
       }
 
-      // O arquivo final segue a proporção da moldura, não a do vídeo de origem.
-      const frameRatio = background.width / background.height;
-      const width = frameRatio >= 1 ? 1920 : Math.max(1, Math.round(1920 * frameRatio));
-      const height = frameRatio >= 1 ? Math.max(1, Math.round(1920 / frameRatio)) : 1920;
+      // Formato e resolução escolhidos definem as dimensões exatas da exportação.
+      const isLandscape = outputFormat === "16:9";
+      const is4K = outputResolution === "4K";
+      const width = isLandscape ? (is4K ? 3840 : 1920) : (is4K ? 2160 : 1080);
+      const height = isLandscape ? (is4K ? 2160 : 1080) : (is4K ? 3840 : 1920);
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -192,7 +195,10 @@ function Studio() {
       if (!ctx) throw new Error("Não foi possível iniciar o renderizador.");
 
       const draw = () => {
-        const bgScale = Math.max(width / background.width, height / background.height);
+        // Mantém a imagem de fundo inteira; completa com preto sem cortar a moldura.
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, width, height);
+        const bgScale = Math.min(width / background.width, height / background.height);
         const bgW = background.width * bgScale;
         const bgH = background.height * bgScale;
         ctx.drawImage(background, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH);
@@ -245,7 +251,7 @@ function Studio() {
 
       const recorder = new MediaRecorder(canvasStream, {
         mimeType,
-        videoBitsPerSecond: 12_000_000,
+        videoBitsPerSecond: outputResolution === "4K" ? 35_000_000 : 12_000_000,
         ...(sourceStream?.getAudioTracks().length ? { audioBitsPerSecond: 192_000 } : {})
       });
       const chunks: BlobPart[] = [];
@@ -303,6 +309,24 @@ function Studio() {
       </header>
       <main className="oneclick-main">
         <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
+        <section className="oneclick-card" style={{ marginBottom: 18 }}>
+          <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
+          <div className="output-settings-grid">
+            <label>Formato
+              <select value={outputFormat} onChange={(event) => setOutputFormat(event.target.value as "16:9" | "9:16")} disabled={busy}>
+                <option value="16:9">Horizontal · 16:9 (YouTube)</option>
+                <option value="9:16">Vertical · 9:16 (Shorts / Reels / TikTok)</option>
+              </select>
+            </label>
+            <label>Resolução
+              <select value={outputResolution} onChange={(event) => setOutputResolution(event.target.value as "1080p" | "4K")} disabled={busy}>
+                <option value="1080p">Full HD · 1080p</option>
+                <option value="4K">Ultra HD · 4K</option>
+              </select>
+            </label>
+          </div>
+          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · WebM</p>
+        </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo do YouTube</small></div></div>
@@ -360,8 +384,8 @@ function Studio() {
           </div>
         </section>
         <section className="oneclick-preview">
-          <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação.</p></div>
-          {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: backgroundAspectRatio}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
+          <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação em {outputFormat} e {outputResolution}. A imagem de fundo aparece inteira, sem cortes.</p></div>
+          {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: outputFormat === "16:9" ? "16 / 9" : "9 / 16", backgroundSize: "contain", backgroundColor: "#000"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
         <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
