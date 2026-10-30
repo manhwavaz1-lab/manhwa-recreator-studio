@@ -4,6 +4,72 @@ import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck,
 
 export const Route = createFileRoute("/")({ component: Studio });
 
+type FfmpegInstance = {
+  load: () => Promise<void>;
+  FS: (operation: "writeFile" | "readFile" | "unlink", ...args: (string | Uint8Array)[]) => Uint8Array | void;
+  run: (...args: string[]) => Promise<void>;
+};
+
+declare global {
+  interface Window {
+    FFmpeg?: { createFFmpeg: (options: { log: boolean; corePath: string }) => FfmpegInstance };
+  }
+}
+
+let ffmpegLoader: Promise<FfmpegInstance> | null = null;
+
+async function getFfmpeg() {
+  if (!ffmpegLoader) {
+    ffmpegLoader = (async () => {
+      if (!window.FFmpeg) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js";
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Não foi possível baixar o módulo FFmpeg. Verifique sua conexão e tente novamente."));
+          document.head.appendChild(script);
+        });
+      }
+      if (!window.FFmpeg) throw new Error("O módulo FFmpeg não ficou disponível no navegador.");
+      const ffmpeg = window.FFmpeg.createFFmpeg({
+        log: false,
+        corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"
+      });
+      await ffmpeg.load();
+      return ffmpeg;
+    })().catch((error) => {
+      ffmpegLoader = null;
+      throw error;
+    });
+  }
+  return ffmpegLoader;
+}
+
+async function cleanContainerMetadata(source: Blob) {
+  const ffmpeg = await getFfmpeg();
+  const input = "manhwa-input.webm";
+  const output = "manhwa-clean.webm";
+  ffmpeg.FS("writeFile", input, new Uint8Array(await source.arrayBuffer()));
+  await ffmpeg.run(
+    "-i", input,
+    "-map", "0",
+    "-map_metadata", "-1",
+    "-map_chapters", "-1",
+    "-c", "copy",
+    "-fflags", "+bitexact",
+    "-metadata", "encoder=",
+    "-metadata", "title=",
+    "-metadata", "comment=",
+    "-metadata", "description=",
+    "-metadata", "creation_time=",
+    output
+  );
+  const result = ffmpeg.FS("readFile", output) as Uint8Array;
+  ffmpeg.FS("unlink", input);
+  ffmpeg.FS("unlink", output);
+  return new Blob([result], { type: "video/webm" });
+}
+
 function Studio() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
@@ -174,7 +240,7 @@ function Studio() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setMessage("Vídeo criado e download iniciado. O conteúdo visual e o áudio foram mantidos em reprodução integral, sem cortes, filtros ou narração.");
+      setMessage("Vídeo criado. O FFmpeg removeu os metadados descritivos do contêiner; os dados técnicos necessários para reprodução permanecem.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar o vídeo.");
     } finally {
@@ -220,8 +286,8 @@ function Studio() {
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
-        {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · metadados originais do arquivo não são copiados</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + "-com-moldura.webm"}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> os arquivos são processados no navegador e não são enviados a um servidor. A exportação cria um novo arquivo e não transfere os metadados do contêiner original (como título, comentário, data de criação e tags). Para aplicar a moldura, o vídeo é recodificado; o áudio é mantido em reprodução integral, sem cortes ou efeitos, mas o navegador também o recodifica no novo arquivo.</p></div>
+        {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · limpeza FFmpeg de metadados descritivos aplicada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + "-com-moldura.webm"}><Download size={16}/> Baixar novamente</a></section>}
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> os arquivos são processados no navegador e não são enviados a um servidor. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
