@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X } from "lucide-react";
+import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X, Youtube } from "lucide-react";
 
 export const Route = createFileRoute("/")({ component: Studio });
 
@@ -17,6 +17,7 @@ declare global {
 }
 
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
+const YOUTUBE_BACKEND_URL = (import.meta.env.VITE_YOUTUBE_BACKEND_URL as string | undefined)?.replace(/\/$/, "");
 
 async function getFfmpeg() {
   if (!ffmpegLoader) {
@@ -72,6 +73,7 @@ async function cleanContainerMetadata(source: Blob) {
 
 function Studio() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
   const [backgroundPreview, setBackgroundPreview] = useState("");
@@ -86,7 +88,6 @@ function Studio() {
   const [markH, setMarkH] = useState(8);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const videoInput = useRef<HTMLInputElement>(null);
   const backgroundInput = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
 
@@ -100,16 +101,6 @@ function Studio() {
     objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
     objectUrls.current = [];
   }, []);
-
-  function selectVideo(file?: File) {
-    if (!file) return;
-    if (!file.type.startsWith("video/")) { setError("Selecione um arquivo de vídeo."); return; }
-    setVideoFile(file);
-    setVideoPreview(createTrackedUrl(file));
-    setRenderedUrl("");
-    setMessage("");
-    setError("");
-  }
 
   function selectBackground(file?: File) {
     if (!file) return;
@@ -125,8 +116,12 @@ function Studio() {
   }
 
   async function createVideo() {
-    if (!videoFile || !backgroundFile) {
-      setError("Envie o vídeo e a imagem PNG/JPEG que será usada como fundo e moldura.");
+    if (!youtubeUrl.trim() || !backgroundFile) {
+      setError("Cole o link de um vídeo público ou não listado do YouTube e envie a imagem PNG/JPEG.");
+      return;
+    }
+    if (!YOUTUBE_BACKEND_URL) {
+      setError("O serviço de download ainda não está configurado. Defina VITE_YOUTUBE_BACKEND_URL no ambiente do app.");
       return;
     }
     if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
@@ -142,8 +137,27 @@ function Studio() {
     let canvasStream: MediaStream | null = null;
     let videoUrl = "";
     try {
+      setMessage("Baixando o vídeo público/não listado do YouTube...");
+      const downloadResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: youtubeUrl.trim() })
+      });
+      if (!downloadResponse.ok) {
+        const payload = await downloadResponse.json().catch(() => ({})) as { detail?: string };
+        throw new Error(payload.detail || "Falha ao baixar vídeo do YouTube (HTTP " + downloadResponse.status + ").");
+      }
+      const downloadedBlob = await downloadResponse.blob();
+      if (!downloadedBlob.size) throw new Error("O YouTube não retornou um arquivo de vídeo.");
+      const disposition = downloadResponse.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const downloadedName = filenameMatch?.[1] || "youtube-video.mp4";
+      const activeVideoFile = new File([downloadedBlob], downloadedName, { type: downloadedBlob.type || "video/mp4" });
+      setVideoFile(activeVideoFile);
+      videoUrl = createTrackedUrl(activeVideoFile);
+      setVideoPreview(videoUrl);
+      setMessage("Download concluído. Iniciando composição e limpeza de metadados...");
       const backgroundUrl = createTrackedUrl(backgroundFile);
-      videoUrl = createTrackedUrl(videoFile);
       const background = new Image();
       background.src = backgroundUrl;
       await new Promise<void>((resolve, reject) => {
@@ -249,7 +263,7 @@ function Studio() {
       setRenderedType(blob.type);
       setProgress(100);
 
-      const safeName = (videoFile.name.replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.webm";
+      const safeName = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.webm";
       const link = document.createElement("a");
       link.href = outputUrl;
       link.download = safeName;
@@ -270,18 +284,20 @@ function Studio() {
     <div className="oneclick-shell">
       <header className="oneclick-header">
         <div className="oneclick-brand"><span className="oneclick-mark">M</span><div><strong>MANHWA STUDIO</strong><small>VIDEO FRAME CREATOR</small></div></div>
-        <span className="oneclick-status"><span/> PROCESSAMENTO LOCAL</span>
+        <span className="oneclick-status"><span/> DOWNLOAD + PROCESSAMENTO</span>
       </header>
       <main className="oneclick-main">
-        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Envie o vídeo e uma imagem PNG ou JPEG. O programa aplica a imagem como fundo ao redor do vídeo, permite desfocar a área da sua própria marca-d’água e limpa os metadados descritivos do contêiner.</p></div>
+        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de um vídeo público ou não listado e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
         <section className="oneclick-grid">
           <div className="oneclick-card">
-            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Vídeo original</strong><small>Selecione o arquivo completo</small></div></div>
+            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo público ou não listado</small></div></div>
             <button className="oneclick-drop" onClick={() => videoInput.current?.click()} disabled={busy}>
-              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Escolher vídeo</strong><small>MP4, MOV ou WebM</small></>}
+              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Youtube/><strong>Vídeo será baixado do YouTube</strong><small>Cole o link público ou não listado abaixo</small></>}
             </button>
-            <input ref={videoInput} type="file" accept="video/*" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
-            {videoFile && <div className="oneclick-file"><Check size={15}/><span>{videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Remover vídeo"><X size={15}/></button></div>}
+            <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube</label>
+            <input value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
+            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita vídeos públicos e não listados. Não aceita vídeos privados nem playlists. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
+            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileImage/><div><strong>2. Fundo / moldura</strong><small>PNG ou JPEG que ficará ao redor</small></div></div>
@@ -310,14 +326,14 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A imagem enviada ocupa o fundo; o vídeo fica centralizado e dimensionado sem cortar a imagem original.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")"}}><video src={videoPreview} muted playsInline/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
-        <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
+        <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !youtubeUrl.trim() || !backgroundFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · limpeza FFmpeg de metadados descritivos aplicada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + "-com-moldura.webm"}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> os arquivos são processados no navegador e não são enviados a um servidor. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo público/não listado usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação continuam no navegador. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
