@@ -17,18 +17,24 @@ function Studio() {
   const [error, setError] = useState("");
   const videoInput = useRef<HTMLInputElement>(null);
   const backgroundInput = useRef<HTMLInputElement>(null);
+  const objectUrls = useRef<string[]>([]);
+
+  function createTrackedUrl(file: Blob) {
+    const url = URL.createObjectURL(file);
+    objectUrls.current.push(url);
+    return url;
+  }
 
   useEffect(() => () => {
-    if (videoPreview) URL.revokeObjectURL(videoPreview);
-    if (backgroundPreview) URL.revokeObjectURL(backgroundPreview);
-    if (renderedUrl) URL.revokeObjectURL(renderedUrl);
-  }, [videoPreview, backgroundPreview, renderedUrl]);
+    objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrls.current = [];
+  }, []);
 
   function selectVideo(file?: File) {
     if (!file) return;
     if (!file.type.startsWith("video/")) { setError("Selecione um arquivo de vídeo."); return; }
     setVideoFile(file);
-    setVideoPreview(URL.createObjectURL(file));
+    setVideoPreview(createTrackedUrl(file));
     setRenderedUrl("");
     setMessage("");
     setError("");
@@ -41,7 +47,7 @@ function Studio() {
       return;
     }
     setBackgroundFile(file);
-    setBackgroundPreview(URL.createObjectURL(file));
+    setBackgroundPreview(createTrackedUrl(file));
     setRenderedUrl("");
     setMessage("");
     setError("");
@@ -65,8 +71,8 @@ function Studio() {
     let canvasStream: MediaStream | null = null;
     let videoUrl = "";
     try {
-      const backgroundUrl = URL.createObjectURL(backgroundFile);
-      videoUrl = URL.createObjectURL(videoFile);
+      const backgroundUrl = createTrackedUrl(backgroundFile);
+      videoUrl = createTrackedUrl(videoFile);
       const background = new Image();
       background.src = backgroundUrl;
       await new Promise<void>((resolve, reject) => {
@@ -79,7 +85,7 @@ function Studio() {
       video.playsInline = true;
       video.src = videoUrl;
       await new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => resolve();
+        video.onloadeddata = () => resolve();
         video.onerror = () => reject(new Error("O navegador não conseguiu decodificar este vídeo. Tente MP4 H.264 ou WebM."));
       });
       if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) {
@@ -156,7 +162,7 @@ function Studio() {
       const blob = await finished;
       cancelAnimationFrame(raf);
       if (!blob.size) throw new Error("O arquivo exportado ficou vazio. Tente novamente.");
-      const outputUrl = URL.createObjectURL(blob);
+      const outputUrl = createTrackedUrl(blob);
       setRenderedUrl(outputUrl);
       setRenderedType(blob.type);
       setProgress(100);
@@ -174,7 +180,6 @@ function Studio() {
     } finally {
       sourceStream?.getTracks().forEach((track) => track.stop());
       canvasStream?.getTracks().forEach((track) => track.stop());
-      if (videoUrl) URL.revokeObjectURL(videoUrl);
       setBusy(false);
     }
   }
