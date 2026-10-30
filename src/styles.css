@@ -272,3 +272,8 @@ h1 span { color: var(--red-2); }
 .render-progress span { display: block; height: 100%; background: linear-gradient(90deg,#a71926,#ff3948); transition: width .15s linear; }
 .rendered-preview { width: 100%; max-height: 440px; object-fit: contain; background: #050608; border: 1px solid #303642; border-radius: 7px; margin-top: 15px; }
 @media (max-width: 760px) { .render-controls { align-items: stretch; flex-direction: column; } .render-controls > div:first-child, .render-controls select { width: 100%; } .render-controls .primary-button { width: 100%; } }
+
+.project-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.project-actions .outline-button { white-space: nowrap; }
+@media (max-width: 1100px) { .project-actions { grid-column: 1 / -1; justify-content: flex-end; } }
+@media (max-width: 760px) { .project-actions { width: 100%; justify-content: stretch; } .project-actions .outline-button { flex: 1; justify-content: center; } }
