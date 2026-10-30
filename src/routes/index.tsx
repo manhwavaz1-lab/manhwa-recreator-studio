@@ -77,6 +77,7 @@ function Studio() {
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
   const [backgroundPreview, setBackgroundPreview] = useState("");
+  const [backgroundAspectRatio, setBackgroundAspectRatio] = useState("16 / 9");
   const [renderedUrl, setRenderedUrl] = useState("");
   const [renderedType, setRenderedType] = useState("");
   const [progress, setProgress] = useState(0);
@@ -127,7 +128,11 @@ function Studio() {
       return;
     }
     setBackgroundFile(file);
-    setBackgroundPreview(createTrackedUrl(file));
+    const previewUrl = createTrackedUrl(file);
+    setBackgroundPreview(previewUrl);
+    const backgroundImage = new Image();
+    backgroundImage.onload = () => setBackgroundAspectRatio(backgroundImage.naturalWidth + " / " + backgroundImage.naturalHeight);
+    backgroundImage.src = previewUrl;
     setRenderedUrl("");
     setMessage("");
     setError("");
@@ -356,7 +361,7 @@ function Studio() {
         </section>
         <section className="oneclick-preview">
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação.</p></div>
-          {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
+          {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: backgroundAspectRatio}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
         <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
