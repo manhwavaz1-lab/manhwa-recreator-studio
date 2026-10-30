@@ -117,7 +117,7 @@ function Studio() {
 
   async function createVideo() {
     if (!youtubeUrl.trim() || !backgroundFile) {
-      setError("Cole o link de um vídeo público/listado do YouTube e envie a imagem PNG/JPEG.");
+      setError("Cole o link de um vídeo do YouTube e envie a imagem PNG/JPEG.");
       return;
     }
     if (!YOUTUBE_BACKEND_URL) {
@@ -137,7 +137,7 @@ function Studio() {
     let canvasStream: MediaStream | null = null;
     let videoUrl = "";
     try {
-      setMessage("Iniciando download do vídeo público/listado do YouTube...");
+      setMessage("Iniciando download do vídeo do YouTube...");
       const startResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -302,16 +302,16 @@ function Studio() {
         <span className="oneclick-status"><span/> DOWNLOAD + PROCESSAMENTO</span>
       </header>
       <main className="oneclick-main">
-        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de um vídeo público/listado e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
+        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
         <section className="oneclick-grid">
           <div className="oneclick-card">
-            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo público/listado</small></div></div>
+            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo do YouTube</small></div></div>
             <button className="oneclick-drop" onClick={() => document.getElementById("youtube-link")?.focus()} disabled={busy}>
-              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Youtube/><strong>Vídeo será baixado do YouTube</strong><small>Cole o link público/listado abaixo</small></>}
+              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Youtube/><strong>Vídeo será baixado do YouTube</strong><small>Cole o link do vídeo abaixo</small></>}
             </button>
             <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube</label>
             <input id="youtube-link" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
-            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita somente vídeos públicos/listados. Vídeos não listados, privados e playlists são recusados. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
+            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos ou que exijam autenticação podem não estar acessíveis. Playlists não são aceitas. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
             {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
@@ -348,7 +348,7 @@ function Studio() {
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · limpeza FFmpeg de metadados descritivos aplicada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + "-com-moldura.webm"}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo público/listado usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação continuam no navegador. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo do YouTube usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação continuam no navegador. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
