@@ -26,7 +26,7 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024
+MAX_FILE_BYTES = 7 * 1024 * 1024 * 1024
 RATE_WINDOW_SECONDS = 60 * 60
 RATE_LIMIT = 4
 JOB_TTL_SECONDS = 60 * 60
@@ -123,7 +123,7 @@ def run_download_job(job_id: str, url: str) -> None:
             raise ValueError("O YouTube não forneceu um arquivo que o FFmpeg consiga preparar.")
         output = max(candidates, key=lambda p: p.stat().st_size)
         if output.stat().st_size > MAX_FILE_BYTES:
-            raise ValueError("O arquivo excede o limite de 2 GB.")
+            raise ValueError("O arquivo excede o limite de 7 GB.")
         if output.suffix.lower() != ".mp4":
             raise ValueError("Não foi possível converter o download para MP4.")
         update_job(job_id, status="completed", progress=100, message="Download pronto para processamento.", file_path=str(output), filename="youtube-video.mp4")
