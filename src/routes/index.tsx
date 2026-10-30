@@ -89,6 +89,7 @@ function Studio() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
+  const videoInput = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
 
   function createTrackedUrl(file: Blob) {
@@ -101,6 +102,19 @@ function Studio() {
     objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
     objectUrls.current = [];
   }, []);
+
+  function selectVideo(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      setError("Selecione um arquivo de vídeo válido, como MP4.");
+      return;
+    }
+    setVideoFile(file);
+    setVideoPreview(createTrackedUrl(file));
+    setRenderedUrl("");
+    setMessage("Vídeo carregado. Agora você pode criar a composição.");
+    setError("");
+  }
 
   function selectBackground(file?: File) {
     if (!file) return;
@@ -116,12 +130,8 @@ function Studio() {
   }
 
   async function createVideo() {
-    if (!youtubeUrl.trim() || !backgroundFile) {
-      setError("Cole o link de um vídeo do YouTube e envie a imagem PNG/JPEG.");
-      return;
-    }
-    if (!YOUTUBE_BACKEND_URL) {
-      setError("O serviço de download ainda não está configurado. Defina VITE_YOUTUBE_BACKEND_URL no ambiente do app.");
+    if (!videoFile || !backgroundFile) {
+      setError("Baixe o vídeo pelo YTDown, selecione o arquivo MP4 e envie a imagem PNG/JPEG.");
       return;
     }
     if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
@@ -137,41 +147,11 @@ function Studio() {
     let canvasStream: MediaStream | null = null;
     let videoUrl = "";
     try {
-      setMessage("Iniciando download do vídeo do YouTube...");
-      const startResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: youtubeUrl.trim() })
-      });
-      if (!startResponse.ok) {
-        const payload = await startResponse.json().catch(() => ({})) as { detail?: string };
-        throw new Error(payload.detail || "Falha ao iniciar download do YouTube (HTTP " + startResponse.status + ").");
-      }
-      const startPayload = await startResponse.json() as { job_id?: string };
-      if (!startPayload.job_id) throw new Error("O serviço não retornou o identificador do download.");
-      let downloadFinished = false;
-      while (!downloadFinished) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 2500));
-        const statusResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs/" + startPayload.job_id);
-        if (!statusResponse.ok) throw new Error("Não foi possível consultar o andamento do download.");
-        const job = await statusResponse.json() as { status: string; progress: number; message: string };
-        setProgress(Math.round((job.progress || 0) * 0.2));
-        setMessage(job.message || "Baixando vídeo do YouTube...");
-        if (job.status === "error") throw new Error(job.message || "O download do YouTube falhou.");
-        downloadFinished = job.status === "completed";
-      }
-      const downloadResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs/" + startPayload.job_id + "/file");
-      if (!downloadResponse.ok) throw new Error("O download terminou, mas o arquivo MP4 não pôde ser recebido.");
-      const downloadedBlob = await downloadResponse.blob();
-      if (!downloadedBlob.size) throw new Error("O YouTube não retornou um arquivo de vídeo.");
-      const disposition = downloadResponse.headers.get("content-disposition") || "";
-      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
-      const downloadedName = filenameMatch?.[1] || "youtube-video.mp4";
-      const activeVideoFile = new File([downloadedBlob], downloadedName, { type: downloadedBlob.type || "video/mp4" });
-      setVideoFile(activeVideoFile);
+      const activeVideoFile = videoFile;
+      if (!activeVideoFile) throw new Error("Selecione o vídeo MP4 baixado pelo YTDown.");
       videoUrl = createTrackedUrl(activeVideoFile);
       setVideoPreview(videoUrl);
-      setMessage("Download concluído. Iniciando composição e limpeza de metadados...");
+      setMessage("Vídeo carregado. Iniciando composição e limpeza de metadados...");
       const backgroundUrl = createTrackedUrl(backgroundFile);
       const background = new Image();
       background.src = backgroundUrl;
@@ -306,12 +286,21 @@ function Studio() {
         <section className="oneclick-grid">
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo do YouTube</small></div></div>
-            <button className="oneclick-drop" onClick={() => document.getElementById("youtube-link")?.focus()} disabled={busy}>
-              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Youtube/><strong>Vídeo será baixado do YouTube</strong><small>Cole o link do vídeo abaixo</small></>}
+            <button className="oneclick-drop" onClick={() => videoInput.current?.click()} disabled={busy}>
+              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Selecionar vídeo baixado</strong><small>Escolha o arquivo MP4 salvo no computador</small></>}
             </button>
-            <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube</label>
+            <input ref={videoInput} type="file" accept="video/*,.mp4,.webm,.mov,.mkv" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
+            <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+              <button type="button" onClick={() => window.open("https://app.ytdown.to/en38/","_blank","noopener,noreferrer")} disabled={busy} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #ef4055",background:"#211016",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>
+                <Youtube size={14} style={{display:"inline",verticalAlign:"middle",marginRight:6}}/> ABRIR YTDOWN PARA BAIXAR
+              </button>
+              <button type="button" onClick={() => videoInput.current?.click()} disabled={busy} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #414958",background:"#171b23",color:"#fff",cursor:"pointer",fontSize:11}}>
+                SELECIONAR MP4
+              </button>
+            </div>
+            <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube (cole também no YTDown)</label>
             <input id="youtube-link" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
-            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos ou que exijam autenticação podem não estar acessíveis. Playlists não são aceitas. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
+            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Cole o mesmo link no YTDown, escolha MP4 e baixe o arquivo. Depois selecione o vídeo aqui para aplicar a moldura. Use apenas conteúdo que você tenha direito ou autorização para baixar e processar.</p>
             {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
@@ -341,7 +330,7 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A imagem enviada ocupa o fundo; o vídeo fica centralizado e dimensionado sem cortar a imagem original.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")"}}><video src={videoPreview} muted playsInline/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
-        <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !youtubeUrl.trim() || !backgroundFile}>
+        <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
