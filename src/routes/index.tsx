@@ -17,7 +17,7 @@ declare global {
 }
 
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
-const YOUTUBE_BACKEND_URL = (import.meta.env.VITE_YOUTUBE_BACKEND_URL as string | undefined)?.replace(/\/$/, "");
+const YOUTUBE_BACKEND_URL = ((import.meta.env.VITE_YOUTUBE_BACKEND_URL as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
 
 async function getFfmpeg() {
   if (!ffmpegLoader) {
