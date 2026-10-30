@@ -12,6 +12,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: pip install -r youtube-backend/requirements.txt
+      - name: Validate backend Python
+        run: python -m compileall -q youtube-backend
+      - name: Backend unit tests
+        working-directory: youtube-backend
+        run: python -m unittest discover -s . -p "test_*.py"
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
