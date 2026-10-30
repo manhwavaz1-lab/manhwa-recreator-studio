@@ -172,9 +172,10 @@ function Studio() {
         throw new Error("O vídeo não possui duração ou dimensões válidas.");
       }
 
-      const sourceRatio = video.videoWidth / video.videoHeight;
-      const width = sourceRatio >= 1 ? 1920 : Math.max(1, Math.round(1920 * sourceRatio));
-      const height = sourceRatio >= 1 ? Math.max(1, Math.round(1920 / sourceRatio)) : 1920;
+      // O arquivo final segue a proporção da moldura, não a do vídeo de origem.
+      const frameRatio = background.width / background.height;
+      const width = frameRatio >= 1 ? 1920 : Math.max(1, Math.round(1920 * frameRatio));
+      const height = frameRatio >= 1 ? Math.max(1, Math.round(1920 / frameRatio)) : 1920;
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -187,14 +188,21 @@ function Studio() {
         const bgH = background.height * bgScale;
         ctx.drawImage(background, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH);
 
+        // Preenche a janela central da moldura; corta apenas o excedente
+        // nas bordas para evitar barras pretas e vídeo pequeno no centro.
         const safeW = width * 0.84;
         const safeH = height * 0.84;
-        const videoScale = Math.min(safeW / video.videoWidth, safeH / video.videoHeight);
+        const videoScale = Math.max(safeW / video.videoWidth, safeH / video.videoHeight);
         const videoW = video.videoWidth * videoScale;
         const videoH = video.videoHeight * videoScale;
         const x = (width - videoW) / 2;
         const y = (height - videoH) / 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect((width - safeW) / 2, (height - safeH) / 2, safeW, safeH);
+        ctx.clip();
         ctx.drawImage(video, x, y, videoW, videoH);
+        ctx.restore();
 
         if (hideWatermark) {
           const sx = (Math.max(0, Math.min(99, markX)) / 100) * video.videoWidth;
@@ -327,7 +335,7 @@ function Studio() {
           <p style={{ opacity: .72, fontSize: 12, marginTop: 10 }}>Informe a posição e o tamanho aproximados da sua marca em porcentagem do quadro original. O programa aplica desfoque nessa região; não reconstrói os pixels que estavam atrás do logotipo. Ajuste os valores para cada canal.</p>
         </section>
         <section className="oneclick-preview">
-          <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A imagem enviada ocupa o fundo; o vídeo fica centralizado e dimensionado sem cortar a imagem original.</p></div>
+          <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A moldura define o formato final. O vídeo preenche melhor a janela central, sem barras pretas; somente o excesso das bordas é recortado.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")"}}><video src={videoPreview} muted playsInline/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
         <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
