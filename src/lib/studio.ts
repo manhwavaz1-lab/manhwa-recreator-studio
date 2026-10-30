@@ -85,7 +85,7 @@ export async function openRouterTask(apiKey: string, endpoint:
     const baseUrl = import.meta.env.VITE_SUPABASE_URL;
     const publicKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
     if (!baseUrl || !publicKey) throw new Error("Backend Lovable Cloud não configurado.");
-    const response = await fetch(baseUrl.replace(/\\/$/, "") + OPENROUTER_PROXY, {
+    const response = await fetch(baseUrl.replace(/\/$/, "") + OPENROUTER_PROXY, {
       method: "POST", headers: { "Content-Type": "application/json", apikey: publicKey },
       body: JSON.stringify({ apiKey, path: endpoint, body }),
     });
