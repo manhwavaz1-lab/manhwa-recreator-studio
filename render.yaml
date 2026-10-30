@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: manhwa-studio-youtube-downloader
+    runtime: docker
+    dockerfilePath: ./youtube-backend/Dockerfile
+    dockerContext: ./youtube-backend
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: CORS_ORIGINS
+        sync: false
