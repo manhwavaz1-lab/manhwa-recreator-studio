@@ -262,3 +262,13 @@ h1 span { color: var(--red-2); }
 .tts-model-input, .tts-voice-input { min-width: 0; height: 34px; border: 1px solid #373e4a; border-radius: 6px; padding: 0 9px; background: #0c0e12; color: #dce0e8; font-size: 9px; }
 .tts-model-input { flex: 1 1 260px; }
 .tts-voice-input { flex: 0 1 120px; }
+
+.render-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding: 15px 0 5px; border-top: 1px solid #2a303a; margin-top: 14px; }
+.render-controls > div:first-child { display: grid; gap: 7px; min-width: 220px; }
+.render-controls label { color: #7e8795; font-size: 8px; font-weight: 800; letter-spacing: .09em; }
+.render-controls select { height: 36px; min-width: 220px; border: 1px solid #343b47; border-radius: 6px; padding: 0 10px; background: #0c0e12; color: #dce0e8; font-size: 10px; }
+.render-audio-state { display: flex; align-items: center; gap: 7px; color: #aab3c1; font-size: 9px; padding: 0 4px 10px; }
+.render-progress { height: 6px; background: #292e38; border-radius: 9px; overflow: hidden; margin-top: 13px; }
+.render-progress span { display: block; height: 100%; background: linear-gradient(90deg,#a71926,#ff3948); transition: width .15s linear; }
+.rendered-preview { width: 100%; max-height: 440px; object-fit: contain; background: #050608; border: 1px solid #303642; border-radius: 7px; margin-top: 15px; }
+@media (max-width: 760px) { .render-controls { align-items: stretch; flex-direction: column; } .render-controls > div:first-child, .render-controls select { width: 100%; } .render-controls .primary-button { width: 100%; } }
