@@ -27,7 +27,6 @@ app.add_middleware(
 )
 
 MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024
-MAX_DURATION_SECONDS = 4 * 60 * 60
 RATE_WINDOW_SECONDS = 60 * 60
 RATE_LIMIT = 4
 JOB_TTL_SECONDS = 60 * 60
@@ -108,7 +107,6 @@ def run_download_job(job_id: str, url: str) -> None:
             "fragment_retries": 2,
             "socket_timeout": 30,
             "max_filesize": MAX_FILE_BYTES,
-            "match_filter": yt_dlp.utils.match_filter_func("duration <= 14400"),
             "progress_hooks": [progress_hook],
             "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
         }
@@ -118,13 +116,6 @@ def run_download_job(job_id: str, url: str) -> None:
                 raise ValueError("Cole o link de um único vídeo, não de uma playlist.")
             if info.get("extractor_key", "").lower() not in {"youtube", "youtubeweb"}:
                 raise ValueError("O link não foi reconhecido como um vídeo do YouTube.")
-            if info.get("is_live"):
-                raise ValueError("Transmissões ao vivo não são aceitas.")
-            if info.get("availability") != "public":
-                raise ValueError("Este sistema aceita somente vídeos públicos/listados. Vídeos não listados ou privados não são aceitos.")
-            duration = info.get("duration")
-            if duration and duration > MAX_DURATION_SECONDS:
-                raise ValueError("O vídeo ultrapassa o limite de 4 horas.")
             downloader.download([url])
 
         candidates = [p for p in Path(workdir).iterdir() if p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}]
@@ -140,9 +131,9 @@ def run_download_job(job_id: str, url: str) -> None:
         shutil.rmtree(workdir, ignore_errors=True)
         message = str(exc).lower()
         if any(term in message for term in ("private video", "video unavailable", "members-only", "sign in")):
-            detail = "Este vídeo não está disponível publicamente. Vídeos privados ou que exigem login não são aceitos."
+            detail = "O YouTube não permitiu o acesso a este vídeo. Ele pode ser privado, removido, exigir login ou ter restrição de acesso."
         else:
-            detail = "Não foi possível baixar este vídeo. Confirme se o vídeo está público/listado e tente novamente."
+            detail = "Não foi possível baixar este vídeo. Verifique o link e se o YouTube permite reproduzi-lo sem autenticação."
         update_job(job_id, status="error", message=detail, workdir=None)
     except ValueError as exc:
         shutil.rmtree(workdir, ignore_errors=True)
