@@ -5,7 +5,7 @@ import {
   Layers3, LoaderCircle, LockKeyhole, MessageSquareText, Mic2, Play, Plus,
   ScanEye, Settings2, ShieldCheck, Sparkles, Upload, WandSparkles, X
 } from "lucide-react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";\nimport { loadStudioProject, saveStudioProject } from "../lib/project-storage";
 import {
   askOpenRouter, buildWebVtt, downloadText, extractJson, fetchOpenRouterModels, openRouterTask,
   getStoredApiKey, loadStoryMemory, saveStoryMemory, storeApiKey,
@@ -41,12 +41,23 @@ function Studio() {
   const [showKey, setShowKey] = useState(false);
   const [ttsModel, setTtsModel] = useState("");
   const [ttsVoice, setTtsVoice] = useState("alloy");
-  const [ttsBusy, setTtsBusy] = useState(false);\n  const [ttsAudio, setTtsAudio] = useState<Blob | null>(null);\n  const [renderFormat, setRenderFormat] = useState<"16:9" | "9:16">("16:9");\n  const [renderBusy, setRenderBusy] = useState(false);\n  const [renderProgress, setRenderProgress] = useState(0);\n  const [renderedVideo, setRenderedVideo] = useState<string>("");
+  const [ttsBusy, setTtsBusy] = useState(false);\n  const [ttsAudio, setTtsAudio] = useState<Blob | null>(null);\n  const [renderFormat, setRenderFormat] = useState<"16:9" | "9:16">("16:9");\n  const [renderBusy, setRenderBusy] = useState(false);\n  const [renderProgress, setRenderProgress] = useState(0);\n  const [renderedVideo, setRenderedVideo] = useState<string>("");\n  const [projectSaving, setProjectSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setApiKey(getStoredApiKey());
     setMemory(loadStoryMemory());
+    void loadStudioProject().then((saved) => {
+      if (!saved) return;
+      setProjectName(saved.projectName || "Novo projeto de Manhwa");
+      setYoutubeUrl(saved.youtubeUrl || "");
+      setAnalysis(saved.analysis as Analysis | null);
+      setAssets(saved.assets || []);
+      setAssetNames(saved.assetNames || []);
+      setVideoName(saved.videoName || "");
+      setRenderFormat(saved.renderFormat || "16:9");
+      setMessage("Projeto salvo restaurado deste navegador.");
+    }).catch(() => undefined);
     if ("speechSynthesis" in window) {
       const loadVoices = () => {
         const available = window.speechSynthesis.getVoices().filter((item) => item.lang.toLowerCase().startsWith("pt-br"));
@@ -387,6 +398,16 @@ function Studio() {
     }
   }
 
+  async function saveCurrentProject() {
+    setProjectSaving(true); setError(""); setMessage("");
+    try {
+      await saveStudioProject({ projectName, youtubeUrl, analysis, assets, assetNames, videoName, renderFormat });
+      setMessage("Projeto salvo neste navegador. Você poderá reabri-lo neste dispositivo.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível salvar o projeto.");
+    } finally { setProjectSaving(false); }
+  }
+
   function exportProject() {
     const payload = { version: "4.0", projectName, sourceUrl: youtubeUrl, analysis, memory, exportedAt: new Date().toISOString() };
     downloadText(projectName.replace(/[^a-z0-9-_]+/gi, "-") + "-projeto.json", JSON.stringify(payload, null, 2), "application/json");
@@ -432,7 +453,7 @@ function Studio() {
             <section className="project-bar panel">
               <div className="project-icon"><FolderOpen size={19}/></div>
               <div className="project-field"><label>NOME DO PROJETO</label><input value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Ex.: Solo Necromancer — Capítulo 01"/></div>
-              <div className="project-stats"><div><small>PERSONAGENS</small><strong>{memory.characters.length.toString().padStart(2, "0")}</strong></div><div><small>EPISÓDIOS NA MEMÓRIA</small><strong>{memory.episodes.length.toString().padStart(2, "0")}</strong></div></div>
+              <div className="project-stats"><div><small>PERSONAGENS</small><strong>{memory.characters.length.toString().padStart(2, "0")}</strong></div><div><small>EPISÓDIOS NA MEMÓRIA</small><strong>{memory.episodes.length.toString().padStart(2, "0")}</strong></div></div><div className="project-actions"><button className="outline-button" onClick={saveCurrentProject} disabled={projectSaving}>{projectSaving ? <LoaderCircle className="spin" size={14}/> : <Check size={14}/>} Salvar projeto</button><button className="outline-button" onClick={() => void loadStudioProject().then((saved) => { if (!saved) { setError("Ainda não existe um projeto salvo neste navegador."); return; } setProjectName(saved.projectName); setYoutubeUrl(saved.youtubeUrl); setAnalysis(saved.analysis as Analysis | null); setAssets(saved.assets); setAssetNames(saved.assetNames); setVideoName(saved.videoName); setRenderFormat(saved.renderFormat); setMessage("Projeto restaurado."); }).catch((err) => setError(err instanceof Error ? err.message : "Falha ao restaurar projeto."))}><FolderOpen size={14}/> Abrir salvo</button></div>
             </section>
 
             <div className="section-heading"><div><span className="step-number">01</span><div><h2>Importar conteúdo</h2><p>Use uma URL como referência e envie o arquivo autorizado para análise visual.</p></div></div><span className="subtle-tag"><ShieldCheck size={13}/> Conteúdo próprio ou autorizado</span></div>
