@@ -137,16 +137,31 @@ function Studio() {
     let canvasStream: MediaStream | null = null;
     let videoUrl = "";
     try {
-      setMessage("Baixando o vídeo público/não listado do YouTube...");
-      const downloadResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/download", {
+      setMessage("Iniciando download do vídeo público/não listado do YouTube...");
+      const startResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: youtubeUrl.trim() })
       });
-      if (!downloadResponse.ok) {
-        const payload = await downloadResponse.json().catch(() => ({})) as { detail?: string };
-        throw new Error(payload.detail || "Falha ao baixar vídeo do YouTube (HTTP " + downloadResponse.status + ").");
+      if (!startResponse.ok) {
+        const payload = await startResponse.json().catch(() => ({})) as { detail?: string };
+        throw new Error(payload.detail || "Falha ao iniciar download do YouTube (HTTP " + startResponse.status + ").");
       }
+      const startPayload = await startResponse.json() as { job_id?: string };
+      if (!startPayload.job_id) throw new Error("O serviço não retornou o identificador do download.");
+      let downloadFinished = false;
+      while (!downloadFinished) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 2500));
+        const statusResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs/" + startPayload.job_id);
+        if (!statusResponse.ok) throw new Error("Não foi possível consultar o andamento do download.");
+        const job = await statusResponse.json() as { status: string; progress: number; message: string };
+        setProgress(Math.round((job.progress || 0) * 0.2));
+        setMessage(job.message || "Baixando vídeo do YouTube...");
+        if (job.status === "error") throw new Error(job.message || "O download do YouTube falhou.");
+        downloadFinished = job.status === "completed";
+      }
+      const downloadResponse = await fetch(YOUTUBE_BACKEND_URL + "/api/youtube/jobs/" + startPayload.job_id + "/file");
+      if (!downloadResponse.ok) throw new Error("O download terminou, mas o arquivo MP4 não pôde ser recebido.");
       const downloadedBlob = await downloadResponse.blob();
       if (!downloadedBlob.size) throw new Error("O YouTube não retornou um arquivo de vídeo.");
       const disposition = downloadResponse.headers.get("content-disposition") || "";
@@ -244,7 +259,7 @@ function Studio() {
       let lastProgress = 0;
       const paint = () => {
         draw();
-        const nextProgress = Math.min(99, Math.floor((video.currentTime / video.duration) * 100));
+        const nextProgress = 20 + Math.min(79, Math.floor((video.currentTime / video.duration) * 79));
         if (nextProgress !== lastProgress) {
           lastProgress = nextProgress;
           setProgress(nextProgress);
