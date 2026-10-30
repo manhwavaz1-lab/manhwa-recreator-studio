@@ -311,7 +311,7 @@ function Studio() {
             </button>
             <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube</label>
             <input id="youtube-link" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
-            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita vídeos públicos e não listados. Não aceita vídeos privados nem playlists. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
+            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Aceita somente vídeos públicos/listados. Vídeos não listados, privados e playlists são recusados. Use somente conteúdo seu ou que você tenha autorização para processar.</p>
             {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
