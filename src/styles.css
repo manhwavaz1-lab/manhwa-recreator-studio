@@ -310,7 +310,7 @@ h1 span { color: var(--red-2); }
 .oneclick-preview {margin-top:16px;display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:center}
 .oneclick-preview p {font-size:9px;line-height:1.7;color:#8d97a6;margin:8px 0 0}
 .oneclick-composite {width:100%;aspect-ratio:16/9;max-height:300px;background-size:cover;background-position:center;display:grid;place-items:center;overflow:hidden;border-radius:8px;border:1px solid #3a414e}
-.oneclick-composite video {width:84%;height:84%;object-fit:contain;background:#050608}
+.oneclick-composite video {width:84%;height:84%;object-fit:cover;background:#050608}
 .oneclick-empty {min-height:160px;border:1px dashed #3b4350;border-radius:8px;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;color:#778191;font-size:10px}
 .oneclick-empty svg {color:#f16a75}
 .oneclick-create {width:100%;min-height:58px;margin-top:20px;border:0;border-radius:9px;background:linear-gradient(110deg,#f04452,#b91f35);color:white;font-weight:850;font-size:12px;letter-spacing:.07em;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 10px 30px #e33a4a2b}
