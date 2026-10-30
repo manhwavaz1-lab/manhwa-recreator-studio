@@ -120,6 +120,8 @@ def run_download_job(job_id: str, url: str) -> None:
                 raise ValueError("O link não foi reconhecido como um vídeo do YouTube.")
             if info.get("is_live"):
                 raise ValueError("Transmissões ao vivo não são aceitas.")
+            if info.get("availability") != "public":
+                raise ValueError("Este sistema aceita somente vídeos públicos/listados. Vídeos não listados ou privados não são aceitos.")
             duration = info.get("duration")
             if duration and duration > MAX_DURATION_SECONDS:
                 raise ValueError("O vídeo ultrapassa o limite de 4 horas.")
@@ -140,7 +142,7 @@ def run_download_job(job_id: str, url: str) -> None:
         if any(term in message for term in ("private video", "video unavailable", "members-only", "sign in")):
             detail = "Este vídeo não está disponível publicamente. Vídeos privados ou que exigem login não são aceitos."
         else:
-            detail = "Não foi possível baixar este vídeo. Confirme se o link é público ou não listado e tente novamente."
+            detail = "Não foi possível baixar este vídeo. Confirme se o vídeo está público/listado e tente novamente."
         update_job(job_id, status="error", message=detail, workdir=None)
     except ValueError as exc:
         shutil.rmtree(workdir, ignore_errors=True)
