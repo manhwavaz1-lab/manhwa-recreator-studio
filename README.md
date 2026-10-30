@@ -11,11 +11,11 @@ Aplicação web para receber um link de vídeo do YouTube, baixar vídeos acess�
 5. O backend inicia um trabalho em segundo plano, informa o progresso por consulta periódica e disponibiliza o MP4 ao navegador quando termina. O navegador aplica a moldura, grava a composição e o FFmpeg.wasm remove metadados descritivos do contêiner.
 6. O arquivo final WebM é baixado automaticamente.
 
-O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite de arquivo é 2 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
+O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite de arquivo é 7 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
 
 ## Backend do YouTube
 
-O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, e aceita vídeos públicos e não listados, inclusive Shorts. Playlists são recusadas; vídeos privados ou que exijam autenticação dependem de acesso permitido pelo YouTube. O limite configurado é de 2 GB por arquivo; a duração não é limitada pelo aplicativo, mas vídeos longos podem exceder esse limite de tamanho ou os recursos disponíveis no Render. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
+O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, e aceita vídeos públicos e não listados, inclusive Shorts. Playlists são recusadas; vídeos privados ou que exijam autenticação dependem de acesso permitido pelo YouTube. O limite configurado é de 7 GB por arquivo; a duração não é limitada pelo aplicativo, mas vídeos longos podem exceder esse limite de tamanho ou os recursos disponíveis no Render. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
 
 ### Implantar no Render
 
