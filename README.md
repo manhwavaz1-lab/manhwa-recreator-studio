@@ -42,9 +42,9 @@ Para executar localmente o proxy, conecte o Supabase CLI ao mesmo projeto e publ
 
 ## Limitações conhecidas
 
-- **Modelos e modalidades:** a disponibilidade depende do catálogo OpenRouter e do modelo/provedor. A existência de um endpoint não significa que todo modelo o suporte. O gateway de modalidades está disponível no serviço; a interface atual usa chat/visão para análise. Controles dedicados de TTS, geração de imagem, transcrição, embeddings e vídeo ainda precisam ser adicionados às telas de fluxo correspondentes.
+- **Modelos e modalidades:** a disponibilidade depende do catálogo OpenRouter e do modelo/provedor. A existência de um endpoint não significa que todo modelo o suporte. O gateway de modalidades está disponível no serviço; a interface atual usa chat/visão para análise e já inclui controle de geração de narração MP3 por TTS. Geração de imagem, transcrição, embeddings e vídeo estão disponíveis no gateway de serviço, mas ainda precisam de controles dedicados nas telas correspondentes.
 - **YouTube:** a URL é registrada como referência; o aplicativo não baixa vídeos do YouTube. Importe mídia local que você tenha direito de utilizar.
-- **Narração:** a prévia de voz atual usa SpeechSynthesis do navegador e não gera MP3 automaticamente. O gateway de TTS está preparado, mas ainda não existe botão de geração/seleção de voz na interface.
+- **Narração:** a prévia usa SpeechSynthesis do navegador. A geração de MP3 usa o endpoint TTS do OpenRouter e exige informar um ID de modelo TTS compatível e uma voz aceita por esse modelo.
 - **MP4/FFmpeg:** a linha do tempo organiza cenas, mas não renderiza MP4. Isso exige worker de renderização, fila e armazenamento de mídia.
 - **Memória:** continua salva no localStorage do navegador e não sincroniza entre dispositivos.
 - **Legendas:** WebVTT usa tempos estimados por frase, não alinhamento palavra a palavra.
