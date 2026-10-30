@@ -41,7 +41,7 @@ function Studio() {
   const [showKey, setShowKey] = useState(false);
   const [ttsModel, setTtsModel] = useState("");
   const [ttsVoice, setTtsVoice] = useState("alloy");
-  const [ttsBusy, setTtsBusy] = useState(false);
+  const [ttsBusy, setTtsBusy] = useState(false);\n  const [ttsAudio, setTtsAudio] = useState<Blob | null>(null);\n  const [renderFormat, setRenderFormat] = useState<"16:9" | "9:16">("16:9");\n  const [renderBusy, setRenderBusy] = useState(false);\n  const [renderProgress, setRenderProgress] = useState(0);\n  const [renderedVideo, setRenderedVideo] = useState<string>("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -219,16 +219,148 @@ function Studio() {
         model: ttsModel.trim(), input: analysis.script, voice: ttsVoice.trim() || "alloy", response_format: "mp3",
       });
       if (!(audio instanceof Blob)) throw new Error("O endpoint TTS não retornou um arquivo de áudio.");
+      setTtsAudio(audio);
       const url = URL.createObjectURL(audio);
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = projectName.replace(/[^a-z0-9-_]+/gi, "-") + "-narracao.mp3";
       anchor.click();
-      URL.revokeObjectURL(url);
-      setMessage("Narração MP3 gerada pelo OpenRouter.");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setMessage("Narração MP3 gerada e anexada à linha do tempo para renderização.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao gerar narração MP3.");
     } finally { setTtsBusy(false); }
+  }
+
+  async function renderEpisode() {
+    if (!analysis?.scenes?.length || !assets.length) {
+      setError("Gere o roteiro e importe imagens ou quadros antes de renderizar.");
+      return;
+    }
+    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
+      setError("Este navegador não oferece gravação de vídeo por Canvas. Use a versão mais recente do Chrome ou Edge.");
+      return;
+    }
+    setRenderBusy(true); setRenderProgress(0); setError(""); setMessage("");
+    let audioElement: HTMLAudioElement | null = null;
+    let audioUrl = "";
+    try {
+      const width = renderFormat === "16:9" ? 1280 : 720;
+      const height = renderFormat === "16:9" ? 720 : 1280;
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Não foi possível iniciar o renderizador Canvas.");
+      const decoded = await Promise.all(assets.map((src) => new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("Uma imagem do projeto não pôde ser decodificada.")); image.src = src;
+      })));
+      const weights = analysis.scenes.map((scene) => Math.max(1, (scene.narration || scene.description).split(/\\s+/).length));
+      const weightTotal = weights.reduce((sum, value) => sum + value, 0);
+      const durations = ttsAudio ? weights.map((value) => value / weightTotal) : weights.map(() => 1 / weights.length);
+      let totalMs = 0;
+      if (ttsAudio) {
+        audioUrl = URL.createObjectURL(ttsAudio);
+        audioElement = new Audio(audioUrl);
+        audioElement.preload = "auto";
+        await new Promise<void>((resolve, reject) => {
+          audioElement!.onloadedmetadata = () => resolve();
+          audioElement!.onerror = () => reject(new Error("Não foi possível abrir o áudio TTS para sincronizar o vídeo."));
+        });
+        totalMs = audioElement.duration * 1000;
+      } else {
+        totalMs = Math.max(5, analysis.scenes.length * 5) * 1000;
+      }
+      const sceneEnds: number[] = [];
+      let accumulated = 0;
+      durations.forEach((ratio) => { accumulated += ratio * totalMs; sceneEnds.push(accumulated); });
+      const stream = canvas.captureStream(30);
+      if (audioElement) {
+        const capture = (audioElement as HTMLAudioElement & { captureStream?: () => MediaStream }).captureStream;
+        if (!capture) throw new Error("Este navegador não permite capturar a faixa de áudio. Atualize o Chrome ou Edge.");
+        capture.call(audioElement).getAudioTracks().forEach((track) => stream.addTrack(track));
+      }
+      const mime = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus"].find((type) => MediaRecorder.isTypeSupported(type));
+      if (!mime) throw new Error("Nenhum codec de gravação compatível foi encontrado neste navegador.");
+      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5_000_000 });
+      const chunks: BlobPart[] = [];
+      const completed = new Promise<Blob>((resolve, reject) => {
+        recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+        recorder.onerror = () => reject(new Error("O navegador interrompeu a gravação do vídeo."));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType }));
+      });
+      const wrap = (text: string, maxWidth: number, maxLines: number) => {
+        const words = text.split(/\\s+/); const lines: string[] = []; let line = "";
+        for (const word of words) {
+          const candidate = line ? line + " " + word : word;
+          if (context.measureText(candidate).width > maxWidth && line) { lines.push(line); line = word; }
+          else line = candidate;
+          if (lines.length === maxLines) break;
+        }
+        if (line && lines.length < maxLines) lines.push(line);
+        return lines;
+      };
+      const draw = (elapsed: number) => {
+        const index = Math.min(sceneEnds.findIndex((end) => elapsed < end), analysis.scenes.length - 1);
+        const sceneIndex = index < 0 ? analysis.scenes.length - 1 : index;
+        const scene = analysis.scenes[sceneIndex];
+        const image = decoded[sceneIndex % decoded.length];
+        const sceneStart = sceneIndex ? sceneEnds[sceneIndex - 1] : 0;
+        const sceneDuration = Math.max(1, sceneEnds[sceneIndex] - sceneStart);
+        const progress = Math.max(0, Math.min(1, (elapsed - sceneStart) / sceneDuration));
+        const zoom = 1.02 + progress * 0.07;
+        const scale = Math.max(width / image.width, height / image.height) * zoom;
+        const drawWidth = image.width * scale; const drawHeight = image.height * scale;
+        const pan = (progress - 0.5) * width * 0.035;
+        context.fillStyle = "#08090c"; context.fillRect(0, 0, width, height);
+        context.drawImage(image, (width - drawWidth) / 2 - pan, (height - drawHeight) / 2, drawWidth, drawHeight);
+        const shade = context.createLinearGradient(0, 0, 0, height);
+        shade.addColorStop(0, "rgba(0,0,0,.28)"); shade.addColorStop(.38, "rgba(0,0,0,.08)"); shade.addColorStop(1, "rgba(0,0,0,.88)");
+        context.fillStyle = shade; context.fillRect(0, 0, width, height);
+        context.fillStyle = "#ef3340"; context.fillRect(width * .07, height * .72, width * .09, 7);
+        context.fillStyle = "#ffffff"; context.font = "700 " + Math.round(width * .025) + "px Arial";
+        context.fillText(projectName.toUpperCase().slice(0, 42), width * .07, height * .12);
+        context.font = "700 " + Math.round(width * .043) + "px Arial";
+        const titleLines = wrap(scene.description, width * .84, 3);
+        titleLines.forEach((line, lineIndex) => context.fillText(line, width * .07, height * .80 + lineIndex * height * .055));
+        context.font = "500 " + Math.round(width * .024) + "px Arial";
+        const caption = scene.narration || scene.description;
+        const captionLines = wrap(caption, width * .84, 3);
+        captionLines.forEach((line, lineIndex) => context.fillText(line, width * .07, height * .91 + lineIndex * height * .032));
+        context.fillStyle = "#ef3340"; context.font = "700 " + Math.round(width * .018) + "px Arial";
+        context.fillText(String(sceneIndex + 1).padStart(2, "0") + " / " + String(analysis.scenes.length).padStart(2, "0"), width * .86, height * .12);
+      };
+      recorder.start(500);
+      const startTime = performance.now();
+      if (audioElement) await audioElement.play();
+      while (true) {
+        const elapsed = Math.min(performance.now() - startTime, totalMs);
+        draw(elapsed);
+        setRenderProgress(Math.round((elapsed / totalMs) * 100));
+        if (elapsed >= totalMs) break;
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      if (audioElement) audioElement.pause();
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+      recorder.stop();
+      const blob = await completed;
+      stream.getTracks().forEach((track) => track.stop());
+      if (!blob.size) throw new Error("O arquivo de vídeo ficou vazio. Tente novamente.");
+      if (renderedVideo) URL.revokeObjectURL(renderedVideo);
+      const url = URL.createObjectURL(blob);
+      setRenderedVideo(url);
+      const extension = blob.type.includes("mp4") ? "mp4" : "webm";
+      const link = document.createElement("a"); link.href = url;
+      link.download = projectName.replace(/[^a-z0-9-_]+/gi, "-") + "-recap." + extension;
+      link.click();
+      setRenderProgress(100);
+      setMessage("Vídeo renderizado e baixado (" + extension.toUpperCase() + "). " + (ttsAudio ? "Narração sincronizada incluída." : "Renderização sem narração; gere TTS para incluir áudio."));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao renderizar o episódio.");
+    } finally {
+      if (audioElement) audioElement.pause();
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      setRenderBusy(false);
+    }
   }
 
   function exportProject() {
@@ -333,7 +465,7 @@ function Studio() {
 
           {activeTab === "memory" && <section className="subpage"><div className="eyebrow"><BrainCircuit size={14}/> CONTINUIDADE ENTRE CAPÍTULOS</div><h1>Memória <span>narrativa</span></h1><p className="subpage-intro">Personagens, acontecimentos e informações persistem neste navegador e são enviados ao OpenRouter nas próximas análises.</p><div className="memory-grid"><div className="panel memory-card"><div className="card-title"><div className="mini-icon purple"><UsersIcon/></div><div><h3>Personagens</h3><p>{memory.characters.length} registrados</p></div></div>{memory.characters.length ? memory.characters.map((character) => <div className="memory-entry" key={character.id}><strong>{character.name}</strong><p>{character.description}</p><small>Primeira aparição: {character.firstSeen}</small></div>) : <div className="empty-state">Os personagens identificados serão salvos aqui após você registrar um episódio.</div>}</div><div className="panel memory-card"><div className="card-title"><div className="mini-icon red"><BookOpen size={17}/></div><div><h3>Episódios</h3><p>{memory.episodes.length} registrados</p></div></div>{memory.episodes.length ? memory.episodes.map((episode) => <div className="memory-entry" key={episode.id}><strong>{episode.title}</strong><p>{episode.summary}</p><small>{new Date(episode.createdAt).toLocaleString("pt-BR")}</small></div>) : <div className="empty-state">Salve o resultado de uma análise para criar a memória do primeiro episódio.</div>}</div></div><div className="panel lore-panel"><label>LORE / INFORMAÇÕES FIXAS DO UNIVERSO</label><textarea value={memory.lore} onChange={(event) => setMemory({ ...memory, lore: event.target.value })} placeholder="Adicione regras do universo, nomes oficiais, contexto e detalhes que a IA deve preservar..."/></div><div className="memory-tools"><button className="outline-button" onClick={() => downloadText("memoria-narrativa.json", JSON.stringify(memory, null, 2), "application/json")}><Download size={15}/> Exportar memória</button><button className="outline-button danger-button" onClick={() => { if (confirm("Apagar toda a memória narrativa deste navegador?")) setMemory(emptyMemory); }}><X size={15}/> Limpar memória</button></div></section>}
 
-          {activeTab === "timeline" && <section className="subpage"><div className="eyebrow"><Layers3 size={14}/> MONTAGEM E SINCRONIZAÇÃO</div><h1>Linha do <span>tempo</span></h1><p className="subpage-intro">Estrutura de cenas e narração preparada para uma etapa de renderização conectada a um worker de vídeo.</p><div className="panel timeline-panel"><div className="timeline-head"><div><h3>Sequência do episódio</h3><p>{analysis ? analysis.scenes.length + " cenas geradas" : "Nenhuma sequência gerada"}</p></div><span className="subtle-tag">Prévia de montagem</span></div>{analysis?.scenes.map((scene) => <div className="timeline-row" key={scene.order}><span className="timeline-time">{String(scene.order).padStart(2, "0")}</span><div className="timeline-visual"><Film size={16}/><strong>{scene.description}</strong><small>{scene.movement}</small></div><div className="timeline-audio"><AudioLines size={16}/><span>{scene.narration}</span></div></div>) || <div className="empty-state">Gere uma análise no Estúdio para preencher a sequência.</div>}<div className="render-warning"><Cloud size={18}/><div><strong>Renderização MP4 ainda não conectada</strong><p>Esta versão prepara roteiro, cenas e legendas. Para renderizar MP4 com FFmpeg, é necessário configurar um worker/backend de vídeo e armazenamento. Não vamos simular uma exportação que ainda não existe.</p></div></div></div><div className="format-grid"><div className="panel format-card"><strong>16:9 · Horizontal</strong><div className="format-preview wide"><Film size={20}/></div><small>1920 × 1080 · YouTube</small></div><div className="panel format-card"><strong>9:16 · Vertical</strong><div className="format-preview tall"><Film size={20}/></div><small>1080 × 1920 · Shorts / Reels</small></div></div></section>}
+          {activeTab === "timeline" && <section className="subpage"><div className="eyebrow"><Layers3 size={14}/> MONTAGEM E SINCRONIZAÇÃO</div><h1>Linha do <span>tempo</span></h1><p className="subpage-intro">Estrutura de cenas e narração preparada para uma etapa de renderização conectada a um worker de vídeo.</p><div className="panel timeline-panel"><div className="timeline-head"><div><h3>Sequência do episódio</h3><p>{analysis ? analysis.scenes.length + " cenas prontas para montagem" : "Nenhuma sequência gerada"}</p></div><span className="subtle-tag">Renderizador no navegador</span></div>{analysis?.scenes.map((scene) => <div className="timeline-row" key={scene.order}><span className="timeline-time">{String(scene.order).padStart(2, "0")}</span><div className="timeline-visual"><Film size={16}/><strong>{scene.description}</strong><small>{scene.movement}</small></div><div className="timeline-audio"><AudioLines size={16}/><span>{scene.narration}</span></div></div>) || <div className="empty-state">Gere uma análise no Estúdio para preencher a sequência.</div>}<div className="render-controls"><div><label>FORMATO DO VÍDEO</label><select value={renderFormat} onChange={(event) => setRenderFormat(event.target.value as "16:9" | "9:16")}><option value="16:9">16:9 · YouTube (1280 × 720)</option><option value="9:16">9:16 · Shorts/Reels (720 × 1280)</option></select></div><div className="render-audio-state"><AudioLines size={16}/>{ttsAudio ? "Narração MP3 anexada" : "Sem áudio TTS — renderização silenciosa"}</div><button className="primary-button" disabled={!analysis || renderBusy || !assets.length} onClick={renderEpisode}>{renderBusy ? <LoaderCircle className="spin" size={16}/> : <Film size={16}/>} {renderBusy ? "Renderizando " + renderProgress + "%" : "Renderizar e baixar vídeo"} <span>→</span></button></div>{renderBusy && <div className="render-progress"><span style={{width: renderProgress + "%"}}/></div>}{renderedVideo && <video className="rendered-preview" src={renderedVideo} controls/>}<div className="render-warning"><Cloud size={18}/><div><strong>Renderização real no navegador</strong><p>O editor compõe imagens, movimentos suaves, títulos e legendas em um vídeo gravado pelo navegador. O arquivo será MP4 quando o navegador oferecer esse codec; caso contrário, será WebM. Gere a narração TTS antes para sincronizar o áudio.</p></div></div></div><div className="format-grid"><div className="panel format-card"><strong>16:9 · Horizontal</strong><div className="format-preview wide"><Film size={20}/></div><small>1920 × 1080 · YouTube</small></div><div className="panel format-card"><strong>9:16 · Vertical</strong><div className="format-preview tall"><Film size={20}/></div><small>1080 × 1920 · Shorts / Reels</small></div></div></section>}
 
           {activeTab === "settings" && <section className="subpage"><div className="eyebrow"><Settings2 size={14}/> PREFERÊNCIAS DO PROJETO</div><h1>Configurações</h1><p className="subpage-intro">Gerencie sua conexão de IA, dados locais e exportação.</p><div className="panel settings-panel"><div className="settings-row"><div><strong>OpenRouter API</strong><p>Chave temporária da sessão para chamadas ao OpenRouter pelo backend Lovable.</p></div><span className={apiKey ? "setting-state good" : "setting-state"}>{apiKey ? "Configurada" : "Pendente"}</span></div><div className="settings-row"><div><strong>Memória narrativa</strong><p>Armazenada no localStorage deste navegador, sem sincronização entre dispositivos.</p></div><span className="setting-state good">Ativa</span></div><div className="settings-row"><div><strong>Dados de origem</strong><p>Arquivos enviados são processados localmente para extrair quadros de referência.</p></div><span className="setting-state good">Local</span></div><div className="settings-row"><div><strong>Exportação de roteiro</strong><p>Baixe o projeto em JSON e as legendas em WebVTT.</p></div><button className="outline-button" onClick={exportProject} disabled={!analysis}><Download size={14}/> Exportar</button></div></div><div className="panel privacy-panel"><LockKeyhole size={20}/><div><strong>Privacidade da chave</strong><p>A chave não é salva no localStorage nem no código. Ela permanece na memória da sessão e é encaminhada ao proxy Edge Function do Lovable, sem ser persistida pelo aplicativo.</p></div></div></section>}
 
