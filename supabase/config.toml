@@ -1,0 +1,4 @@
+project_id = "manhwa-recreator-studio"
+
+[functions.openrouter-proxy]
+verify_jwt = false
