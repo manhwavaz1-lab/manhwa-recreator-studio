@@ -17,7 +17,7 @@ const LEGACY_KEY_STORAGE = "manhwa-recreator-openrouter-key-v4";
 let sessionApiKey = "";
 
 export function getStoredApiKey() {
-  if (typeof window !== "undefined") window.localStorage.removeItem(LEGACY_KEY_STORAGE);
+  try { if (typeof window !== "undefined") window.localStorage.removeItem(LEGACY_KEY_STORAGE); } catch { /* storage may be disabled */ }
   return sessionApiKey;
 }
 export function storeApiKey(value: string) { sessionApiKey = value.trim(); }
