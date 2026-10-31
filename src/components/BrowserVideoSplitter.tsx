@@ -102,12 +102,14 @@ export default function BrowserVideoSplitter({ onPartSelected }: Props) {
         });
 
         video.pause();
-        video.currentTime = start;
-        await new Promise<void>((resolve, reject) => {
-          const timeout = window.setTimeout(() => reject(new Error("Tempo esgotado ao posicionar o vídeo.")), 30000);
-          const onSeeked = () => { window.clearTimeout(timeout); resolve(); };
-          video.addEventListener("seeked", onSeeked, { once: true });
-        });
+        if (Math.abs(video.currentTime - start) > 0.05) {
+          await new Promise<void>((resolve, reject) => {
+            const timeout = window.setTimeout(() => reject(new Error("Tempo esgotado ao posicionar o vídeo.")), 30000);
+            const onSeeked = () => { window.clearTimeout(timeout); resolve(); };
+            video.addEventListener("seeked", onSeeked, { once: true });
+            video.currentTime = start;
+          });
+        }
         recorder.start(1000);
         await video.play();
         setPartNumber(index + 1);
