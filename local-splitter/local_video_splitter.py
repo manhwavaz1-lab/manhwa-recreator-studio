@@ -22,7 +22,7 @@ app = FastAPI(title="Manhwa Studio Local Video Splitter")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://manhwa-panel-remix-studio.lovable.app", "http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_origin_regex=r"https://.*\\.lovable\\.app",
+    allow_origin_regex=r"https://.*\.lovable\.app",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
