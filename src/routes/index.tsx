@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X, Youtube } from "lucide-react";
-import BrowserVideoSplitter from "../components/BrowserVideoSplitter";
 
 export const Route = createFileRoute("/")({ component: Studio });
 
@@ -328,7 +327,6 @@ function Studio() {
           </div>
           <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · WebM</p>
         </section>
-        <BrowserVideoSplitter onPartSelected={(file) => { selectVideo(file); setMessage("Parte selecionada. Agora envie a moldura e continue a edição."); }} />
         <section className="oneclick-grid">
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo do YouTube</small></div></div>
