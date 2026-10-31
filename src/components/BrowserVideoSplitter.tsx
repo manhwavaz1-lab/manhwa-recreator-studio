@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { FileVideo, FolderOpen, LoaderCircle, Play, CheckCircle2, AlertCircle } from "lucide-react";
+import { FileVideo, FolderOpen, LoaderCircle, CheckCircle2, AlertCircle } from "lucide-react";
 
 type DirectoryHandle = {
   getFileHandle(name: string, options: { create: boolean }): Promise<{
