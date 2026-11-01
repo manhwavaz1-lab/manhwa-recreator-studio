@@ -235,7 +235,13 @@ function Studio() {
       };
 
       draw();
-      canvasStream = canvas.captureStream(30);
+      // Captura manual: cada quadro do canvas será enviado somente quando
+      // o vídeo de origem apresentar um novo quadro decodificado.
+      canvasStream = canvas.captureStream(0);
+      const canvasVideoTrack = canvasStream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
+      const requestCanvasFrame = () => canvasVideoTrack.requestFrame?.();
+      requestCanvasFrame();
+
       const capture = video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
       const captureAudio = capture.captureStream || capture.mozCaptureStream;
       if (captureAudio) {
@@ -262,22 +268,52 @@ function Studio() {
       });
 
       let raf = 0;
+      let videoFrameCallback = 0;
       let lastProgress = 0;
-      const paint = () => {
-        draw();
+      const updateProgress = () => {
         const nextProgress = 20 + Math.min(79, Math.floor((video.currentTime / video.duration) * 79));
         if (nextProgress !== lastProgress) {
           lastProgress = nextProgress;
           setProgress(nextProgress);
         }
-        if (!video.ended && !video.paused) raf = requestAnimationFrame(paint);
       };
+      const videoWithFrameCallback = video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime: number }) => void) => number;
+        cancelVideoFrameCallback?: (handle: number) => void;
+      };
+      const paintFromDecodedFrame = () => {
+        if (video.ended || video.paused) return;
+        draw();
+        requestCanvasFrame();
+        updateProgress();
+        if (videoWithFrameCallback.requestVideoFrameCallback) {
+          videoFrameCallback = videoWithFrameCallback.requestVideoFrameCallback(paintFromDecodedFrame);
+        }
+      };
+      const paintFallback = () => {
+        if (video.ended || video.paused) return;
+        draw();
+        requestCanvasFrame();
+        updateProgress();
+        raf = requestAnimationFrame(paintFallback);
+      };
+      const stopPainting = () => {
+        cancelAnimationFrame(raf);
+        if (videoFrameCallback && videoWithFrameCallback.cancelVideoFrameCallback) {
+          videoWithFrameCallback.cancelVideoFrameCallback(videoFrameCallback);
+        }
+      };
+
       recorder.start(1000);
-      video.onended = () => { cancelAnimationFrame(raf); if (recorder.state !== "inactive") recorder.stop(); };
+      video.onended = () => { stopPainting(); if (recorder.state !== "inactive") recorder.stop(); };
       await video.play();
-      paint();
+      if (videoWithFrameCallback.requestVideoFrameCallback) {
+        videoFrameCallback = videoWithFrameCallback.requestVideoFrameCallback(paintFromDecodedFrame);
+      } else {
+        paintFallback();
+      }
       const blob = await finished;
-      cancelAnimationFrame(raf);
+      stopPainting();
       if (!blob.size) throw new Error("O arquivo exportado ficou vazio. Tente novamente.");
       const outputUrl = createTrackedUrl(blob);
       setRenderedUrl(outputUrl);
