@@ -244,7 +244,10 @@ function Studio() {
       setError("Baixe o vídeo pelo YTDown, selecione o arquivo MP4 e envie a imagem PNG/JPEG.");
       return;
     }
-    if (colabUrl.trim() && colabToken.trim()) {\n      void renderWithColab();\n      return;\n    }\n    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
+    if (colabUrl.trim() && colabToken.trim()) {
+      void renderWithColab();
+      return;
+    }\n    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
       setError("Seu navegador não oferece a gravação necessária. Use a versão atual do Chrome ou Edge.");
       return;
     }
