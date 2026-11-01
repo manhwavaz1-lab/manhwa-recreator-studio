@@ -16,7 +16,7 @@ TOKEN = os.environ.get("MANHWA_RENDER_TOKEN", "")
 MAX_FILE_BYTES = 7 * 1024**3
 render_slot = threading.BoundedSemaphore(1)
 
-app = FastAPI(title="Manhwa Studio Colab CPU Renderer", version="1.1.0")
+app = FastAPI(title="Manhwa Studio Colab GPU Renderer", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,11 +30,18 @@ def cleanup(folder: str):
     render_slot.release()
 
 @app.get("/health")
-def health():
+def health(x_render_token: str = Header(default="", alias="X-Render-Token")):
+    if not TOKEN or not secrets.compare_digest(x_render_token, TOKEN):
+        raise HTTPException(401, "Token inválido ou sessão do Colab expirada.")
+    gpu_available = shutil.which("nvidia-smi") is not None
+    encoders = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    nvenc_available = "h264_nvenc" in encoders
     return {
         "status": "ok",
-        "renderer": "ffmpeg-cpu",
-        "hardware_acceleration": False,
+        "renderer": "ffmpeg-gpu" if gpu_available and nvenc_available else "ffmpeg-cpu-fallback",
+        "gpu_available": gpu_available,
+        "hardware_acceleration": gpu_available and nvenc_available,
+        "encoder": "h264_nvenc" if gpu_available and nvenc_available else "libx264",
         "version": app.version,
     }
 
@@ -159,13 +166,16 @@ def render(
         )
         video_map = "[base]"
 
+        encoders = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+        use_nvenc = shutil.which("nvidia-smi") is not None and "h264_nvenc" in encoders
+        video_encoder = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "19"] if use_nvenc else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"]
         command = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-i", str(video_path),
             "-loop", "1", "-i", str(bg_path),
             "-filter_complex", filters,
             "-map", video_map, "-map", "0:a?",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+            *video_encoder,
             "-pix_fmt", "yuv420p", "-threads", "0",
             "-c:a", "aac", "-b:a", "192k",
             "-map_metadata", "-1", "-map_chapters", "-1",
