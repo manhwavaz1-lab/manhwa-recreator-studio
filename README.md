@@ -50,10 +50,10 @@ VITE_YOUTUBE_BACKEND_URL=http://127.0.0.1:8000
 ## Processamento e limitações
 
 - O download do YouTube acontece no backend. O vídeo baixado é enviado de volta ao navegador para a composição.
-- A composição visual e a gravação final continuam no navegador. O vídeo inteiro é reproduzido, sem cortes, aceleração, legendas, roteiro ou narração.
+- Sem Colab, a composição visual e a gravação final continuam no navegador. Com Colab conectado, a composição é executada pelo FFmpeg na API do notebook e a saída é MP4 H.264/AAC.
 - A imagem enviada preenche o fundo; o vídeo é centralizado e dimensionado sem cortar o quadro original.
 - A opção de marca-d’água aplica desfoque somente à região definida pelo usuário. Ela não reconstrói o cenário que existia atrás do logotipo.
-- A renderização inicial usa MediaRecorder e recodifica vídeo e áudio. A saída atual é WebM, com resolução de até 1920 pixels no maior eixo.
+- O renderizador do navegador usa MediaRecorder e produz WebM. O renderizador Colab usa FFmpeg/libx264 e produz MP4; a disponibilidade de 4K depende dos recursos da sessão.
 - FFmpeg.wasm é carregado sob demanda de CDN e remuxa o WebM com `-map_metadata -1`, `-map_chapters -1` e `-c copy`. Isso remove metadados descritivos do contêiner, como título, comentário, descrição, data e capítulos.
 - Informações técnicas necessárias para reprodução — codec, dimensões, duração, timestamps e estrutura do contêiner — continuam presentes.
 - O navegador precisa ter memória suficiente para trabalhar com o vídeo baixado e a composição. Arquivos grandes podem exigir bastante RAM.
@@ -82,4 +82,4 @@ Notebook pronto: [Abrir Manhwa Studio CPU Renderer no Google Colab](https://cola
 
 O notebook cria um token aleatório por sessão. A URL e o token expiram quando o Colab desconecta. O endpoint recebe vídeo e moldura em `POST /render`, com o token no cabeçalho `X-Render-Token`. A saída é MP4 H.264/AAC.
 
-A API está implementada em `colab/manhwa_cpu_api.py`; o notebook baixa esse arquivo do repositório e inicia o servidor e o túnel. A conexão é temporária e precisa ser refeita a cada sessão do Colab. O teste `/health` confirma que a API está acessível; uma renderização real ainda precisa ser validada no navegador com um vídeo de teste. O Colab CPU não garante renderização mais rápida que o navegador ou uma GPU: compare o tempo com um vídeo de teste antes de usar em arquivos longos.
+A API está implementada em `colab/manhwa_cpu_api.py`; o notebook baixa esse arquivo do repositório e inicia o servidor e o túnel. O teste `/health` confirma que a API está acessível. A porcentagem exibida no site acompanha o envio e o recebimento do arquivo, não o processamento interno do FFmpeg. A conexão é temporária e precisa ser refeita a cada sessão. O Colab CPU não garante renderização mais rápida que o navegador ou uma GPU; vídeos longos e 4K podem exceder os limites de tempo, memória ou armazenamento temporário.
