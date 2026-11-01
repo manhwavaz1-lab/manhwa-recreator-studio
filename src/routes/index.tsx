@@ -485,7 +485,7 @@ function Studio() {
               </select>
             </label>
           </div>
-          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · WebM</p>
+          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · {colabUrl.trim() && colabToken.trim() ? "MP4 H.264/AAC (Colab)" : "WebM (navegador)"}</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
