@@ -71,15 +71,15 @@ npm run build
 ```
 
 
-## Renderização em CPU pelo Google Colab
+## Renderização com GPU pelo Google Colab
 
-Notebook pronto: [Abrir Manhwa Studio CPU Renderer no Google Colab](https://colab.research.google.com/github/manhwavaz1-lab/manhwa-recreator-studio/blob/main/colab/Manhwa_Studio_CPU_Renderer.ipynb).
+Notebook pronto: [Abrir Manhwa Studio GPU Renderer no Google Colab](https://colab.research.google.com/github/manhwavaz1-lab/manhwa-recreator-studio/blob/main/colab/Manhwa_Studio_CPU_Renderer.ipynb).
 
 1. Abra o notebook e clique em **Conectar**.
 2. Execute as células em ordem, de cima para baixo.
-3. A última célula inicia a API FFmpeg em CPU e cria uma URL HTTPS temporária pelo Cloudflare Tunnel.
+3. A última célula inicia a API FFmpeg com NVIDIA NVENC quando disponível e cria uma URL HTTPS temporária pelo Cloudflare Tunnel.
 4. Mantenha a sessão aberta enquanto renderiza.
 
 O notebook cria um token aleatório por sessão. A URL e o token expiram quando o Colab desconecta. O endpoint recebe vídeo e moldura em `POST /render`, com o token no cabeçalho `X-Render-Token`. A saída é MP4 H.264/AAC.
 
-A API está implementada em `colab/manhwa_cpu_api.py`; o notebook baixa esse arquivo do repositório e inicia o servidor e o túnel. O teste `/health` confirma que a API está acessível. A porcentagem exibida no site acompanha o envio e o recebimento do arquivo, não o processamento interno do FFmpeg. A conexão é temporária e precisa ser refeita a cada sessão. O Colab CPU não garante renderização mais rápida que o navegador ou uma GPU; vídeos longos e 4K podem exceder os limites de tempo, memória ou armazenamento temporário.
+A API está implementada em `colab/manhwa_cpu_api.py`; o notebook baixa esse arquivo do repositório e inicia o servidor e o túnel. O teste `/health` confirma que a API está acessível. A porcentagem exibida no site acompanha o envio e o recebimento do arquivo, não o processamento interno do FFmpeg. A conexão é temporária e precisa ser refeita a cada sessão. A GPU/NVENC acelera a codificação H.264 quando disponível; filtros de composição ainda podem usar CPU. Se a GPU ou NVENC não estiver disponível, a API usa libx264 em CPU como fallback. A disponibilidade de GPU depende do tipo de runtime e das cotas do Google Colab. Vídeos longos e 4K podem exceder os limites de tempo, memória ou armazenamento temporário.
