@@ -1,3 +1,4 @@
+import json
 import os
 import secrets
 import shutil
@@ -123,17 +124,24 @@ def render(
             my = max(0.0, min(99.0, float(mark_y)))
             mw = max(1.0, min(100.0 - mx, float(mark_w)))
             mh = max(1.0, min(100.0 - my, float(mark_h)))
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "json", str(video_path)],
+                capture_output=True, text=True, check=True,
+            )
+            stream = json.loads(probe.stdout)["streams"][0]
+            source_width, source_height = int(stream["width"]), int(stream["height"])
+            blur_x = min(source_width - 4, max(0, int(source_width * mx / 100) // 2 * 2))
+            blur_y = min(source_height - 4, max(0, int(source_height * my / 100) // 2 * 2))
+            blur_w = max(4, min(source_width - blur_x, int(source_width * mw / 100) // 2 * 2))
+            blur_h = max(4, min(source_height - blur_y, int(source_height * mh / 100) // 2 * 2))
+            blur_w -= blur_w % 2
+            blur_h -= blur_h % 2
             watermark_filters = (
                 f"[0:v]split[video_original][video_to_blur];"
-                f"[video_to_blur]crop="
-                f"w='max(2,trunc(iw*{mw}/100/2)*2)':"
-                f"h='max(2,trunc(ih*{mh}/100/2)*2)':"
-                f"x='trunc(iw*{mx}/100/2)*2':"
-                f"y='trunc(ih*{my}/100/2)*2',"
-                f"boxblur=20:2[video_blurred];"
-                f"[video_original][video_blurred]overlay="
-                f"x='trunc(W*{mx}/100/2)*2':"
-                f"y='trunc(H*{my}/100/2)*2'[source_video];"
+                f"[video_to_blur]crop={blur_w}:{blur_h}:{blur_x}:{blur_y},"
+                f"boxblur=1:1[video_blurred];"
+                f"[video_original][video_blurred]overlay={blur_x}:{blur_y}[source_video];"
             )
             video_input = "[source_video]"
 
@@ -143,7 +151,7 @@ def render(
             f"{watermark_filters}"
             f"{video_input}{fit_filter},"
             f"scale=trunc(iw*{zoom_value}/2)*2:trunc(ih*{zoom_value}/2)*2,"
-            f"pad=max(iw,{safe_w}):max(ih,{safe_h}):(ow-iw)/2:(oh-ih)/2:black,"
+            f"pad=max(iw\\,{safe_w}):max(ih\\,{safe_h}):(ow-iw)/2:(oh-ih)/2:black,"
             f"crop={safe_w}:{safe_h}:"
             f"x='(iw-ow)/2-{ox*safe_w/100}':"
             f"y='(ih-oh)/2-{oy*safe_h/100}'[fg];"
