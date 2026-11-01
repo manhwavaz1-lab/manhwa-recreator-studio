@@ -8,10 +8,10 @@ Aplicação web para receber um link de vídeo do YouTube, baixar vídeos acess�
 2. Envie a imagem PNG ou JPEG que será usada como fundo/moldura.
 3. Opcionalmente, ative **Ocultar sua marca-d’água** e informe a posição e o tamanho da região em porcentagem do quadro original.
 4. Clique em **Criar vídeo com 1 clique**.
-5. O backend inicia um trabalho em segundo plano, informa o progresso por consulta periódica e disponibiliza o MP4 ao navegador quando termina. O navegador aplica a moldura, grava a composição e o FFmpeg.wasm remove metadados descritivos do contêiner.
+5. O backend inicia um trabalho em segundo plano, informa o progresso por consulta periódica e disponibiliza o MP4 ao navegador quando termina. Quando a conexão Colab está preenchida, o site envia o vídeo, a moldura e os ajustes para a API do notebook; o FFmpeg em CPU gera MP4 H.264/AAC e o navegador baixa o resultado. Sem Colab, permanece disponível o renderizador local do navegador.
 6. O arquivo final WebM é baixado automaticamente.
 
-O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite de arquivo é 7 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
+O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite configurado no backend do YouTube é 7 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
 
 ## Backend do YouTube
 
@@ -82,4 +82,4 @@ Notebook pronto: [Abrir Manhwa Studio CPU Renderer no Google Colab](https://cola
 
 O notebook cria um token aleatório por sessão. A URL e o token expiram quando o Colab desconecta. O endpoint recebe vídeo e moldura em `POST /render`, com o token no cabeçalho `X-Render-Token`. A saída é MP4 H.264/AAC.
 
-**Estado da integração:** o notebook e a API estão no repositório. O frontend ainda precisa ser conectado ao endpoint temporário para enviar os arquivos e as configurações da tela; executar o notebook sozinho não muda o mecanismo de renderização do site. O Colab CPU não garante renderização mais rápida que o navegador ou uma GPU: compare o tempo com um vídeo de teste antes de usar em arquivos longos.
+A API está implementada em `colab/manhwa_cpu_api.py`; o notebook baixa esse arquivo do repositório e inicia o servidor e o túnel. A conexão é temporária e precisa ser refeita a cada sessão do Colab. O teste `/health` confirma que a API está acessível; uma renderização real ainda precisa ser validada no navegador com um vídeo de teste. O Colab CPU não garante renderização mais rápida que o navegador ou uma GPU: compare o tempo com um vídeo de teste antes de usar em arquivos longos.
