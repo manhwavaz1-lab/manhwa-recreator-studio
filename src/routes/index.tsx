@@ -153,12 +153,12 @@ function Studio() {
     setColabStatus("checking");
     setError("");
     try {
-      const response = await fetch(base + "/health");
+      const response = await fetch(base + "/health", { headers: { "X-Render-Token": colabToken.trim() } });
       if (!response.ok) throw new Error("O Colab respondeu com erro HTTP " + response.status + ".");
       const data = await response.json();
-      if (data.status !== "ok" || data.renderer !== "ffmpeg-cpu") throw new Error("O endereço não parece ser o renderizador Manhwa Studio.");
+      if (data.status !== "ok" || !String(data.renderer || "").startsWith("ffmpeg-")) throw new Error("O endereço não parece ser o renderizador Manhwa Studio.");
       setColabStatus("connected");
-      setMessage("Google Colab conectado. As próximas exportações serão processadas no Colab usando FFmpeg CPU.");
+      setMessage(data.hardware_acceleration ? "Colab GPU conectado — codificação H.264 por NVIDIA NVENC." : "Colab conectado — GPU não detectada; será usado FFmpeg CPU como fallback.");
     } catch (err) {
       setColabStatus("disconnected");
       setError(err instanceof Error ? err.message : "Não foi possível conectar ao Colab. Confira a URL e mantenha o notebook em execução.");
@@ -469,7 +469,7 @@ function Studio() {
             <button type="button" onClick={() => void testColabConnection()} disabled={busy || colabStatus==="checking"} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #414958",background:"#171b23",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>{colabStatus==="checking" ? "TESTANDO..." : "TESTAR CONEXÃO"}</button>
             <span style={{fontSize:11,color:colabStatus==="connected" ? "#63d69b" : "#aeb6c4"}}>{colabStatus==="connected" ? "● COLAB CONECTADO — RENDERIZAÇÃO EXTERNA ATIVA" : "○ Colab não conectado — renderização local disponível"}</span>
           </div>
-          <p style={{fontSize:10,color:"#929baa",lineHeight:1.6,marginTop:10}}>Abra o notebook, clique em Conectar e execute todas as células. Copie a URL e o token da última célula para estes campos e teste a conexão. A URL/token mudam a cada sessão; mantenha o Colab aberto e não compartilhe o token.</p>
+          <p style={{fontSize:10,color:"#929baa",lineHeight:1.6,marginTop:10}}>No Colab: Ambiente de execução → Alterar tipo de ambiente de execução → Acelerador de hardware: GPU (T4, se disponível). Salve, conecte e execute todas as células. Copie somente a URL HTTPS e o token completos exibidos na última célula. Cole sem aspas, espaços ou crases e clique em Testar conexão. URL e token mudam ao reiniciar a sessão.</p>
         </section>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
