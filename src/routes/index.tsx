@@ -247,7 +247,8 @@ function Studio() {
     if (colabUrl.trim() && colabToken.trim()) {
       void renderWithColab();
       return;
-    }\n    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
+    }
+    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
       setError("Seu navegador não oferece a gravação necessária. Use a versão atual do Chrome ou Edge.");
       return;
     }
