@@ -470,6 +470,7 @@ function Studio() {
           </div>
           <p style={{fontSize:10,color:"#929baa",lineHeight:1.6,marginTop:10}}>Abra o notebook, clique em Conectar e execute todas as células. Copie a URL e o token da última célula para estes campos e teste a conexão. A URL/token mudam a cada sessão; mantenha o Colab aberto e não compartilhe o token.</p>
         </section>
+        <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
           <div className="output-settings-grid">
             <label>Formato
