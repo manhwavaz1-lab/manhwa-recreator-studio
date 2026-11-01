@@ -4,11 +4,11 @@ Aplicação web para receber um link de vídeo do YouTube, baixar vídeos acess�
 
 ## Fluxo de uso
 
-1. Cole o link de um único vídeo do YouTube do YouTube.
+1. Cole o link de um único vídeo do YouTube.
 2. Envie a imagem PNG ou JPEG que será usada como fundo/moldura.
 3. Opcionalmente, ative **Ocultar sua marca-d’água** e informe a posição e o tamanho da região em porcentagem do quadro original.
 4. Clique em **Criar vídeo com 1 clique**.
-5. O backend inicia um trabalho em segundo plano, informa o progresso por consulta periódica e disponibiliza o MP4 ao navegador quando termina. Quando a conexão Colab está preenchida, o site envia o vídeo, a moldura e os ajustes para a API do notebook; o FFmpeg em CPU gera MP4 H.264/AAC e o navegador baixa o resultado. Sem Colab, permanece disponível o renderizador local do navegador.
+5. O navegador compõe o vídeo localmente usando Canvas e MediaRecorder, sem enviar o arquivo de mídia para um serviço de renderização.
 6. O arquivo final WebM é baixado automaticamente.
 
 O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite configurado no backend do YouTube é 7 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
@@ -50,10 +50,10 @@ VITE_YOUTUBE_BACKEND_URL=http://127.0.0.1:8000
 ## Processamento e limitações
 
 - O download do YouTube acontece no backend. O vídeo baixado é enviado de volta ao navegador para a composição.
-- Sem Colab, a composição visual e a gravação final continuam no navegador. Com Colab conectado, a composição é executada pelo FFmpeg na API do notebook e a saída é MP4 H.264/AAC.
+- Toda a composição visual e a gravação final são executadas localmente no navegador. A exportação padrão é WebM pelo MediaRecorder.
 - A imagem enviada preenche o fundo; o vídeo é centralizado e dimensionado sem cortar o quadro original.
 - A opção de marca-d’água aplica desfoque somente à região definida pelo usuário. Ela não reconstrói o cenário que existia atrás do logotipo.
-- O renderizador do navegador usa MediaRecorder e produz WebM. O renderizador Colab usa FFmpeg/libx264 e produz MP4; a disponibilidade de 4K depende dos recursos da sessão.
+- O renderizador local usa MediaRecorder e produz WebM. A disponibilidade e o desempenho em 4K dependem do navegador, da memória RAM e do hardware do computador.
 - FFmpeg.wasm é carregado sob demanda de CDN e remuxa o WebM com `-map_metadata -1`, `-map_chapters -1` e `-c copy`. Isso remove metadados descritivos do contêiner, como título, comentário, descrição, data e capítulos.
 - Informações técnicas necessárias para reprodução — codec, dimensões, duração, timestamps e estrutura do contêiner — continuam presentes.
 - O navegador precisa ter memória suficiente para trabalhar com o vídeo baixado e a composição. Arquivos grandes podem exigir bastante RAM.
@@ -69,17 +69,3 @@ npm run lint
 npm test
 npm run build
 ```
-
-
-## Renderização com GPU pelo Google Colab
-
-Notebook pronto: [Abrir Manhwa Studio GPU Renderer no Google Colab](https://colab.research.google.com/github/manhwavaz1-lab/manhwa-recreator-studio/blob/main/colab/Manhwa_Studio_CPU_Renderer.ipynb).
-
-1. Abra o notebook e clique em **Conectar**.
-2. Execute as células em ordem, de cima para baixo.
-3. A última célula inicia a API FFmpeg com NVIDIA NVENC quando disponível e cria uma URL HTTPS temporária pelo Cloudflare Tunnel.
-4. Mantenha a sessão aberta enquanto renderiza.
-
-O notebook cria um token aleatório por sessão. A URL e o token expiram quando o Colab desconecta. O endpoint recebe vídeo e moldura em `POST /render`, com o token no cabeçalho `X-Render-Token`. A saída é MP4 H.264/AAC.
-
-A API está implementada em `colab/manhwa_cpu_api.py`; o notebook baixa esse arquivo do repositório e inicia o servidor e o túnel. O teste `/health` confirma que a API está acessível. A porcentagem exibida no site acompanha o envio e o recebimento do arquivo, não o processamento interno do FFmpeg. A conexão é temporária e precisa ser refeita a cada sessão. A GPU/NVENC acelera a codificação H.264 quando disponível; filtros de composição ainda podem usar CPU. Se a GPU ou NVENC não estiver disponível, a API usa libx264 em CPU como fallback. A disponibilidade de GPU depende do tipo de runtime e das cotas do Google Colab. Vídeos longos e 4K podem exceder os limites de tempo, memória ou armazenamento temporário.
