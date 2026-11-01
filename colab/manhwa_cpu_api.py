@@ -73,15 +73,21 @@ def render(
         safe_w, safe_h = int(width * .84), int(height * .84)
         zoom = max(.5, min(2.5, zoom / 100))
         ox, oy = max(-50, min(50, offset_x)), max(-50, min(50, offset_y))
-        fit = "increase" if crop_to_fill else "decrease"
-        pad = "" if crop_to_fill else f",pad={safe_w}:{safe_h}:(ow-iw)/2:(oh-ih)/2:black"
-        # Keep the complete frame image; scale/crop only the video viewport.
+        fit_filter = (
+            f"scale={safe_w}:{safe_h}:force_original_aspect_ratio=increase,crop={safe_w}:{safe_h}"
+            if crop_to_fill else
+            f"scale={safe_w}:{safe_h}:force_original_aspect_ratio=decrease,pad={safe_w}:{safe_h}:(ow-iw)/2:(oh-ih)/2:black"
+        )
+        # Zoom and offsets are clipped to the frame's inner viewport. The outer
+        # artwork remains visible and is never cropped.
         filters = (
             f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black[bg];"
-            f"[0:v]scale={safe_w}:{safe_h}:force_original_aspect_ratio={fit}{pad},"
-            f"scale=trunc(iw*{zoom}/2)*2:trunc(ih*{zoom}/2)*2[fg];"
-            f"[bg][fg]overlay=x='(W-w)/2+{ox*safe_w/100}':y='(H-h)/2+{oy*safe_h/100}':shortest=1[base]"
+            f"[0:v]{fit_filter},"
+            f"scale=trunc(iw*{zoom}/2)*2:trunc(ih*{zoom}/2)*2,"
+            f"pad=max(iw,{safe_w}):max(ih,{safe_h}):(ow-iw)/2:(oh-ih)/2:black,"
+            f"crop={safe_w}:{safe_h}:x='(iw-ow)/2-{ox*safe_w/100}':y='(ih-oh)/2-{oy*safe_h/100}'[fg];"
+            f"[bg][fg]overlay=x='(W-w)/2':y='(H-h)/2':shortest=1[base]"
         )
         vmap = "[base]"
         if hide_watermark:
