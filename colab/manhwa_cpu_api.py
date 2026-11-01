@@ -114,10 +114,34 @@ def render(
                 f"pad={safe_w}:{safe_h}:(ow-iw)/2:(oh-ih)/2:black"
             )
 
+        video_input = "[0:v]"
+        watermark_filters = ""
+        if hide_watermark:
+            # The UI expresses the blur rectangle as percentages of the ORIGINAL
+            # source video. Blur it before scaling/cropping so both render paths match.
+            mx = max(0.0, min(99.0, float(mark_x)))
+            my = max(0.0, min(99.0, float(mark_y)))
+            mw = max(1.0, min(100.0 - mx, float(mark_w)))
+            mh = max(1.0, min(100.0 - my, float(mark_h)))
+            watermark_filters = (
+                f"[0:v]split[video_original][video_to_blur];"
+                f"[video_to_blur]crop="
+                f"w='max(2,trunc(iw*{mw}/100/2)*2)':"
+                f"h='max(2,trunc(ih*{mh}/100/2)*2)':"
+                f"x='trunc(iw*{mx}/100/2)*2':"
+                f"y='trunc(ih*{my}/100/2)*2',"
+                f"boxblur=20:2[video_blurred];"
+                f"[video_original][video_blurred]overlay="
+                f"x='trunc(W*{mx}/100/2)*2':"
+                f"y='trunc(H*{my}/100/2)*2'[source_video];"
+            )
+            video_input = "[source_video]"
+
         filters = (
             f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black[bg];"
-            f"[0:v]{fit_filter},"
+            f"{watermark_filters}"
+            f"{video_input}{fit_filter},"
             f"scale=trunc(iw*{zoom_value}/2)*2:trunc(ih*{zoom_value}/2)*2,"
             f"pad=max(iw,{safe_w}):max(ih,{safe_h}):(ow-iw)/2:(oh-ih)/2:black,"
             f"crop={safe_w}:{safe_h}:"
@@ -125,29 +149,7 @@ def render(
             f"y='(ih-oh)/2-{oy*safe_h/100}'[fg];"
             f"[bg][fg]overlay=x='(W-w)/2':y='(H-h)/2':shortest=1[base]"
         )
-
         video_map = "[base]"
-        if hide_watermark:
-            mx = max(0.0, min(99.0, float(mark_x)))
-            my = max(0.0, min(99.0, float(mark_y)))
-            mw = max(1.0, min(100.0 - mx, float(mark_w)))
-            mh = max(1.0, min(100.0 - my, float(mark_h)))
-            # Position is relative to the centered 84% video viewport.
-            blur_w = max(2, int(safe_w * mw / 100))
-            blur_h = max(2, int(safe_h * mh / 100))
-            blur_w -= blur_w % 2
-            blur_h -= blur_h % 2
-            blur_x = int(width * 0.08 + safe_w * mx / 100)
-            blur_y = int(height * 0.08 + safe_h * my / 100)
-            blur_x -= blur_x % 2
-            blur_y -= blur_y % 2
-            filters += (
-                f";[base]split[original][to_blur];"
-                f"[to_blur]crop={blur_w}:{blur_h}:{blur_x}:{blur_y},"
-                f"boxblur=20:2[blurred];"
-                f"[original][blurred]overlay={blur_x}:{blur_y}[vout]"
-            )
-            video_map = "[vout]"
 
         command = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
