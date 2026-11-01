@@ -238,8 +238,14 @@ function Studio() {
       // Captura manual: cada quadro do canvas será enviado somente quando
       // o vídeo de origem apresentar um novo quadro decodificado.
       canvasStream = canvas.captureStream(0);
-      const canvasVideoTrack = canvasStream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
-      const requestCanvasFrame = () => canvasVideoTrack.requestFrame?.();
+      let canvasVideoTrack = canvasStream.getVideoTracks()[0] as (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
+      // Navegadores sem requestFrame usam a captura automática tradicional a 30 FPS.
+      if (!canvasVideoTrack?.requestFrame) {
+        canvasStream.getTracks().forEach((track) => track.stop());
+        canvasStream = canvas.captureStream(30);
+        canvasVideoTrack = canvasStream.getVideoTracks()[0] as (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
+      }
+      const requestCanvasFrame = () => canvasVideoTrack?.requestFrame?.();
       requestCanvasFrame();
 
       const capture = video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
