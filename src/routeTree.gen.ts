@@ -17,7 +17,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-
 const ApiOpenrouterRoute = ApiOpenrouterRouteImport.update({
   id: '/api/openrouter',
   path: '/api/openrouter',

@@ -17,7 +17,7 @@ declare global {
 }
 
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
-const YOUTUBE_BACKEND_URL = ((import.meta.env.VITE_YOUTUBE_BACKEND_URL as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
+const YOUTUBE_BACKEND_URL = ((import.meta.env["VITE_YOUTUBE_BACKEND_URL"] as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
 
 async function getFfmpeg() {
   if (!ffmpegLoader) {
@@ -68,7 +68,7 @@ async function cleanContainerMetadata(source: Blob) {
   const result = ffmpeg.FS("readFile", output) as Uint8Array;
   ffmpeg.FS("unlink", input);
   ffmpeg.FS("unlink", output);
-  return new Blob([result], { type: "video/webm" });
+  return new Blob([new Uint8Array(result)], { type: "video/webm" });
 }
 
 function Studio() {
@@ -247,7 +247,8 @@ function Studio() {
     if (colabUrl.trim() && colabToken.trim()) {
       void renderWithColab();
       return;
-    }\n    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
+    }
+    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
       setError("Seu navegador não oferece a gravação necessária. Use a versão atual do Chrome ou Edge.");
       return;
     }
