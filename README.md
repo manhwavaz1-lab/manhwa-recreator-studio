@@ -69,3 +69,17 @@ npm run lint
 npm test
 npm run build
 ```
+
+
+## Renderização em CPU pelo Google Colab
+
+Notebook pronto: [Abrir Manhwa Studio CPU Renderer no Google Colab](https://colab.research.google.com/github/manhwavaz1-lab/manhwa-recreator-studio/blob/main/colab/Manhwa_Studio_CPU_Renderer.ipynb).
+
+1. Abra o notebook e clique em **Conectar**.
+2. Execute as células em ordem, de cima para baixo.
+3. A última célula inicia a API FFmpeg em CPU e cria uma URL HTTPS temporária pelo Cloudflare Tunnel.
+4. Mantenha a sessão aberta enquanto renderiza.
+
+O notebook cria um token aleatório por sessão. A URL e o token expiram quando o Colab desconecta. O endpoint recebe vídeo e moldura em `POST /render`, com o token no cabeçalho `X-Render-Token`. A saída é MP4 H.264/AAC.
+
+**Estado da integração:** o notebook e a API estão no repositório. O frontend ainda precisa ser conectado ao endpoint temporário para enviar os arquivos e as configurações da tela; executar o notebook sozinho não muda o mecanismo de renderização do site. O Colab CPU não garante renderização mais rápida que o navegador ou uma GPU: compare o tempo com um vídeo de teste antes de usar em arquivos longos.
