@@ -11,6 +11,8 @@ OUTPUT.mkdir(parents=True, exist_ok=True)
 ROOT = Path("/content/manhwa-recreator-studio")
 
 def get_drive_file(url, target):
+    from google.colab import auth
+    auth.authenticate_user()
     import google.auth
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaIoBaseDownload
