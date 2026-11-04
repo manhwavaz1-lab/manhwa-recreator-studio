@@ -39,7 +39,9 @@ def render(args):
     output = Path(args.output).expanduser().resolve()
     if not video.is_file() or not frame.is_file(): raise FileNotFoundError("Vídeo ou moldura não encontrado.")
     output.parent.mkdir(parents=True, exist_ok=True)
-    W,H = (1920,1080) if args.format == "16:9" else (1080,1920)
+    base_w, base_h = (1920,1080) if args.format == "16:9" else (1080,1920)
+    factor = 2 if args.resolution == "4K" else 1
+    W, H = base_w * factor, base_h * factor
     fps = args.fps
     # Optional blur patch in source-video coordinates, expressed as percentages.
     vf = "[0:v]setpts=PTS-STARTPTS[v0];"
@@ -89,7 +91,7 @@ def render(args):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--video", required=True); p.add_argument("--frame", required=True); p.add_argument("--output", required=True)
-    p.add_argument("--format", choices=["16:9","9:16"], default="16:9")
+    p.add_argument("--format", choices=["16:9","9:16"], default="16:9"); p.add_argument("--resolution", choices=["1080p","4K"], default="1080p")
     p.add_argument("--fps", type=int, default=30); p.add_argument("--encoder", choices=["auto","nvenc","qsv","amf","cpu"], default="auto")
     p.add_argument("--crf", type=int, default=23); p.add_argument("--crop", action="store_true")
     p.add_argument("--zoom", type=float, default=100); p.add_argument("--offset-x", type=float, default=0); p.add_argument("--offset-y", type=float, default=0)
