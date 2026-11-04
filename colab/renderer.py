@@ -70,8 +70,19 @@ def render(args):
     elif enc=="h264_qsv": cmd += ["-preset","veryfast","-global_quality",str(args.crf)]
     elif enc=="h264_amf": cmd += ["-quality","speed","-qp_i",str(args.crf),"-qp_p",str(args.crf)]
     cmd += ["-pix_fmt","yuv420p","-c:a","aac","-b:a","192k","-movflags","+faststart","-shortest",str(output)]
-    print("Encoder selecionado:", enc)
-    run(cmd)
+    print("Testando encoder:", enc, flush=True)
+    try:
+        run(cmd)
+    except subprocess.CalledProcessError:
+        if enc == "libx264":
+            raise
+        print(f"Encoder {enc} falhou neste runtime. Repetindo com CPU (libx264)...", flush=True)
+        # Rebuild only the encoder-specific output options for a reliable CPU fallback.
+        fallback = ["ffmpeg","-y","-hide_banner","-i",str(video),"-loop","1","-i",str(frame),
+                    "-filter_complex",vf,"-map","[outv]","-map","0:a?","-c:v","libx264",
+                    "-preset","veryfast","-crf",str(args.crf),"-pix_fmt","yuv420p",
+                    "-c:a","aac","-b:a","192k","-movflags","+faststart","-shortest",str(output)]
+        run(fallback)
     print("ARQUIVO PRONTO:", output)
     return output
 
