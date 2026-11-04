@@ -11,15 +11,20 @@ OUTPUT.mkdir(parents=True, exist_ok=True)
 ROOT = Path("/content/manhwa-recreator-studio")
 
 def get_drive_file(url, target):
-    from google.colab import auth
-    auth.authenticate_user()
-    import google.auth
+    from google.oauth2.credentials import Credentials
+    credential_file = Path("/content/colab_drive_credentials.json")
+    if not credential_file.exists():
+        raise gr.Error("Credenciais do Google ausentes. Execute novamente a célula de autenticação do notebook antes de iniciar o painel.")
+    creds = Credentials.from_authorized_user_file(str(credential_file))
+    if not creds.valid and creds.refresh_token:
+        from google.auth.transport.requests import Request
+        creds.refresh(Request())
+        credential_file.write_text(creds.to_json())
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaIoBaseDownload
     m = re.search(r"(?:/d/|[?&]id=)([A-Za-z0-9_-]{10,})", url.strip())
     if not m:
         raise gr.Error("Link inválido. Use o link de compartilhamento do Google Drive.")
-    creds, _ = google.auth.default()
     service = build("drive", "v3", credentials=creds, cache_discovery=False)
     meta = service.files().get(fileId=m.group(1), fields="name,mimeType").execute()
     req = service.files().get_media(fileId=m.group(1))
