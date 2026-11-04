@@ -51,7 +51,7 @@ def render(args):
         source = "[clean]"
     else:
         source = "[v0]"
-    safe_w, safe_h = int(W*.84), int(H*.84)
+    safe_w, safe_h = (int(W*.84)//2)*2, (int(H*.84)//2)*2  # dimensoes pares exigidas por H.264/yuv420p
     zoom = max(.5, min(2.5, args.zoom/100))
     # Scale to fit/fill the inner window, then center with configurable offsets.
     mode = "increase" if args.crop else "decrease"
@@ -73,6 +73,7 @@ def render(args):
     elif enc=="h264_amf": cmd += ["-quality","speed","-qp_i",str(args.crf),"-qp_p",str(args.crf)]
     cmd += ["-pix_fmt","yuv420p","-c:a","aac","-b:a","192k","-movflags","+faststart","-shortest",str(output)]
     print("Testando encoder:", enc, flush=True)
+    print(f"Dimensoes finais: {W}x{H}; area do video: {safe_w}x{safe_h}", flush=True)
     try:
         run(cmd)
     except subprocess.CalledProcessError:
@@ -85,6 +86,12 @@ def render(args):
                     "-preset","veryfast","-crf",str(args.crf),"-pix_fmt","yuv420p",
                     "-c:a","aac","-b:a","192k","-movflags","+faststart","-shortest",str(output)]
         run(fallback)
+    if not output.exists() or output.stat().st_size < 1024:
+        raise RuntimeError("FFmpeg terminou sem produzir um MP4 valido.")
+    probe = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration,size","-of","default=noprint_wrappers=1",str(output)],capture_output=True,text=True)
+    if probe.returncode != 0:
+        raise RuntimeError("O arquivo gerado nao passou na verificacao ffprobe: " + probe.stderr)
+    print("Verificacao do MP4:", probe.stdout.strip(), flush=True)
     print("ARQUIVO PRONTO:", output)
     return output
 
