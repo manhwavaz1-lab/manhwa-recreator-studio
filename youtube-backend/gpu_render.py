@@ -134,18 +134,54 @@ def build_filter(p: RenderParams, vw: int, vh: int) -> str:
     return ";".join(parts)
 
 
-@lru_cache(maxsize=2)
-def nvenc_available(codec: str = "h264") -> bool:
+@lru_cache(maxsize=16)
+def nvenc_available(codec: str = "h264", gpu_index: int = 0) -> bool:
     encoder = "hevc_nvenc" if codec == "h265" else "h264_nvenc"
     try:
         test = subprocess.run(
             ["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
-             "-frames:v", "1", "-c:v", encoder, "-f", "null", "-"],
+             "-frames:v", "1", "-c:v", encoder, "-gpu", str(gpu_index), "-f", "null", "-"],
             capture_output=True, timeout=30,
         )
         return test.returncode == 0
     except Exception:
         return False
+
+
+def list_nvidia_gpus() -> list[dict]:
+    """Return each visible NVIDIA GPU; VRAM is never treated as pooled memory."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,driver_version",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+        devices = []
+        for line in result.stdout.splitlines():
+            parts = [part.strip() for part in line.split(",")]
+            if len(parts) < 6:
+                continue
+            devices.append({
+                "index": int(parts[0]), "name": parts[1],
+                "memory_total_mb": int(parts[2]), "memory_used_mb": int(parts[3]),
+                "utilization_percent": int(parts[4]), "driver": parts[5],
+            })
+        return devices
+    except Exception:
+        return []
+
+
+def select_nvenc_gpu(codec: str) -> int | None:
+    """Prefer the least busy GPU with a working encoder for the requested codec."""
+    devices = list_nvidia_gpus()
+    candidates = [gpu for gpu in devices if nvenc_available(codec, gpu["index"])]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda gpu: (
+        gpu["utilization_percent"],
+        gpu["memory_used_mb"] / max(1, gpu["memory_total_mb"]),
+    ))
+    return candidates[0]["index"]
 
 
 @lru_cache(maxsize=1)
@@ -160,7 +196,7 @@ def nvdec_available() -> bool:
         return False
 
 
-def encoder_args(p: RenderParams, use_nvenc: bool) -> list[str]:
+def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0) -> list[str]:
     bitrate = {"720p": "5M", "1080p": "12M", "1440p": "20M", "4K": "40M"}[p.resolution]
     if use_nvenc:
         encoder = "hevc_nvenc" if p.codec == "h265" else "h264_nvenc"
@@ -169,7 +205,7 @@ def encoder_args(p: RenderParams, use_nvenc: bool) -> list[str]:
             "balanced": ("p5", "20"),
             "quality": ("p7", "17"),
         }[p.quality]
-        return ["-c:v", encoder, "-preset", preset, "-tune", "hq", "-rc", "vbr",
+        return ["-c:v", encoder, "-gpu", str(gpu_index), "-preset", preset, "-tune", "hq", "-rc", "vbr",
                 "-cq", cq, "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]
     preset, crf = {
         "speed": ("veryfast", "23"),
@@ -187,9 +223,10 @@ def render(video: str, background: str, output: str, p: RenderParams,
     threads = str(max(1, int(os.getenv("RENDER_THREADS", os.cpu_count() or 8))))
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
-    if p.encoder == "nvenc" and not nvenc_available(p.codec):
-        raise RuntimeError("O FFmpeg/driver não disponibiliza NVENC para o codec selecionado.")
-    use_nvenc_first = p.encoder in {"auto", "nvenc"} and nvenc_available(p.codec)
+    selected_gpu = select_nvenc_gpu(p.codec) if p.encoder in {"auto", "nvenc"} else None
+    if p.encoder == "nvenc" and selected_gpu is None:
+        raise RuntimeError("Nenhuma das GPUs NVIDIA disponibiliza NVENC para o codec selecionado.")
+    use_nvenc_first = p.encoder in {"auto", "nvenc"} and selected_gpu is not None
     use_nvdec_first = nvdec_available()
     started = time.monotonic()
 
@@ -197,12 +234,12 @@ def render(video: str, background: str, output: str, p: RenderParams,
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-nostats",
                "-progress", "pipe:1", "-filter_threads", threads, "-filter_complex_threads", threads]
         if use_nvdec:
-            cmd += ["-hwaccel", "cuda"]
+            cmd += ["-hwaccel", "cuda", "-hwaccel_device", str(selected_gpu or 0)]
         cmd += ["-i", video, "-loop", "1", "-i", background, "-filter_complex", graph,
                 "-map", "[out]"]
         if has_audio:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
-        cmd += encoder_args(p, use_nvenc)
+        cmd += encoder_args(p, use_nvenc, selected_gpu or 0)
         target_fps = FPS_VALUES[p.fps]
         if target_fps:
             cmd += ["-r", str(target_fps), "-fps_mode", "cfr"]
@@ -235,7 +272,7 @@ def render(video: str, background: str, output: str, p: RenderParams,
     if use_nvenc_first:
         try:
             run(use_nvdec_first, True)
-            return "NVENC" + (" + NVDEC" if use_nvdec_first else "")
+            return f"NVENC GPU {selected_gpu}" + (" + NVDEC" if use_nvdec_first else "")
         except Exception as exc:
             if p.encoder == "nvenc":
                 raise
