@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X, Youtube } from "lucide-react";
+import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({ component: Studio });
 
@@ -84,7 +84,6 @@ async function cleanContainerMetadata(source: Blob) {
 
 function Studio() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
   const [backgroundPreview, setBackgroundPreview] = useState("");
@@ -128,12 +127,12 @@ function Studio() {
   async function createVideoOnGpu() {
     if (!gpuInfo) { setError("Servidor GPU não detectado nesta máquina."); return; }
     const base = gpuInfo.base;
-    if (!backgroundFile || (!videoFile && !youtubeUrl)) { setError("Envie a moldura e um vídeo ou link do YouTube."); return; }
+    if (!backgroundFile || !videoFile) { setError("Envie o vídeo e a imagem da borda."); return; }
     setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
     try {
       const form = new FormData();
       form.append("background", backgroundFile);
-      if (videoFile) form.append("video", videoFile); else form.append("youtube_url", youtubeUrl);
+      form.append("video", videoFile);
       form.append("params", JSON.stringify({
         output_format: outputFormat, resolution: outputResolution, crop_to_fill: cropToFill, zoom: videoZoom,
         offset_x: videoOffsetX, offset_y: videoOffsetY,
@@ -473,23 +472,12 @@ function Studio() {
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
-            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo do YouTube</small></div></div>
+            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Enviar vídeo</strong><small>Selecione o arquivo no seu computador</small></div></div>
             <button className="oneclick-drop" onClick={() => videoInput.current?.click()} disabled={busy}>
-              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Selecionar vídeo baixado</strong><small>Escolha o arquivo MP4 salvo no computador</small></>}
+              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Selecionar vídeo</strong><small>MP4, MOV, MKV ou WebM</small></>}
             </button>
-            <input ref={videoInput} type="file" accept="video/*,.mp4,.webm,.mov,.mkv" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
-            <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
-              <button type="button" onClick={() => window.open("https://app.ytdown.to/en38/","_blank","noopener,noreferrer")} disabled={busy} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #ef4055",background:"#211016",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>
-                <Youtube size={14} style={{display:"inline",verticalAlign:"middle",marginRight:6}}/> ABRIR YTDOWN PARA BAIXAR
-              </button>
-              <button type="button" onClick={() => videoInput.current?.click()} disabled={busy} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #414958",background:"#171b23",color:"#fff",cursor:"pointer",fontSize:11}}>
-                SELECIONAR MP4
-              </button>
-            </div>
-            <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube (cole também no YTDown)</label>
-            <input id="youtube-link" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
-            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Cole o mesmo link no YTDown, escolha MP4 e baixe o arquivo. Depois selecione o vídeo aqui para aplicar a moldura. Use apenas conteúdo que você tenha direito ou autorização para baixar e processar.</p>
-            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
+            <input ref={videoInput} type="file" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
+            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Vídeo selecionado: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileImage/><div><strong>2. Fundo / moldura</strong><small>PNG ou JPEG que ficará ao redor</small></div></div>
@@ -517,7 +505,7 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação em {outputFormat} e {outputResolution}. A imagem de fundo aparece inteira, sem cortes.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: outputFormat === "16:9" ? "16 / 9" : "9 / 16", backgroundSize: "contain", backgroundColor: "#000"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
-        <button className="oneclick-create" onClick={() => void createVideoOnGpu()} disabled={busy || !gpuInfo || !backgroundFile || (!videoFile && !youtubeUrl)}>
+        <button className="oneclick-create" onClick={() => void createVideoOnGpu()} disabled={busy || !gpuInfo || !backgroundFile || !videoFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
