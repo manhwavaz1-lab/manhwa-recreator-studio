@@ -9,12 +9,14 @@ PORT="${PORT:-8000}"
 CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
 export RENDER_THREADS="${RENDER_THREADS:-$CPU_COUNT}"
 export RENDER_SLOTS="${RENDER_SLOTS:-1}"
-export RATE_LIMIT="${RATE_LIMIT:-100}"
+export RATE_LIMIT="${RATE_LIMIT:-10}"
+export API_KEY="${API_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')}"
 export MAX_FILE_BYTES="${MAX_FILE_BYTES:-7516192768}"
 export PYTHONUNBUFFERED=1
 
 echo "== Manhwa Studio · Vast.ai =="
 echo "CPU threads: $RENDER_THREADS | Render slots: $RENDER_SLOTS | Port: $PORT"
+echo "API_KEY (copie para o campo no app; não compartilhe): $API_KEY"
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
   echo "AVISO: nvidia-smi não encontrado. Esta instância não expõe driver NVIDIA."
