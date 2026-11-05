@@ -24,12 +24,13 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(7 * 1024 * 1024 * 1024)))
 RATE_WINDOW_SECONDS = 60 * 60
-RATE_LIMIT = int(os.getenv("RATE_LIMIT", "100"))
+RATE_LIMIT = int(os.getenv("RATE_LIMIT", "10"))
+API_KEY = os.getenv("API_KEY", "").strip()
 JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
 jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
@@ -40,6 +41,13 @@ YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtu
 
 class DownloadRequest(BaseModel):
     url: HttpUrl
+
+
+def authorize(request: Request) -> None:
+    if API_KEY:
+        supplied = request.headers.get("authorization", "")
+        if supplied != "Bearer " + API_KEY:
+            raise HTTPException(status_code=401, detail="Chave de acesso inválida ou ausente.")
 
 
 def check_rate_limit(ip: str) -> None:
@@ -143,7 +151,8 @@ def health():
 
 
 @app.get("/api/capabilities")
-def capabilities():
+def capabilities(request: Request):
+    authorize(request)
     gpu_name, gpu_memory, driver = "", "", ""
     try:
         result = subprocess.run(
@@ -200,6 +209,7 @@ async def create_render_job(
     youtube_url: str = Form(""),
     video: UploadFile | None = File(None),
 ):
+    authorize(request)
     check_rate_limit(request.client.host if request.client else "unknown")
     if not video and not youtube_url.strip():
         raise HTTPException(status_code=400, detail="Envie um vídeo ou um link do YouTube.")
@@ -242,7 +252,8 @@ async def create_render_job(
 
 @app.get("/api/render/jobs/{job_id}")
 @app.get("/api/youtube/jobs/{job_id}")
-def get_render_job(job_id: str):
+def get_render_job(job_id: str, request: Request):
+    authorize(request)
     with jobs_lock:
         job = jobs.get(job_id)
         if not job:
@@ -251,7 +262,8 @@ def get_render_job(job_id: str):
 
 
 @app.get("/api/render/{job_id}/file")
-def get_render_file(job_id: str):
+def get_render_file(job_id: str, request: Request):
+    authorize(request)
     with jobs_lock:
         job = jobs.get(job_id)
         if not job or job.get("status") != "completed" or not job.get("file_path"):
