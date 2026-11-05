@@ -28,11 +28,6 @@ class RenderParams:
     zoom: float = 100
     offset_x: float = 0
     offset_y: float = 0
-    hide_watermark: bool = False
-    mark_x: float = 80
-    mark_y: float = 85
-    mark_w: float = 15
-    mark_h: float = 8
     fps: str = "original"
     codec: str = "h264"
     encoder: str = "auto"
@@ -115,23 +110,34 @@ def build_filter(p: RenderParams, vw: int, vh: int) -> str:
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p[bg]"
     ]
     source = "[0:v]"
-    if p.hide_watermark:
-        mx = min(99, max(0, p.mark_x))
-        my = min(99, max(0, p.mark_y))
-        mw = min(100 - mx, max(1, p.mark_w))
-        mh = min(100 - my, max(1, p.mark_h))
-        bx, by = int(vw * mx / 100), int(vh * my / 100)
-        bw, bh = even(vw * mw / 100), even(vh * mh / 100)
-        bw, bh = min(bw, vw - bx), min(bh, vh - by)
-        bw, bh = max(2, bw), max(2, bh)
-        parts.append(
-            f"[0:v]split[vmain][vmark];[vmark]crop={bw}:{bh}:{bx}:{by},"
-            f"gblur=sigma=14[blur];[vmain][blur]overlay={bx}:{by}[vclean]"
-        )
-        source = "[vclean]"
     parts.append(f"{source}scale={sw}:{sh}:flags=bicubic,crop={cw}:{ch}:{cx0}:{cy0}[fg]")
     parts.append(f"[bg][fg]overlay={int(x + cx0)}:{int(y + cy0)}:shortest=1,format=yuv420p[out]")
     return ";".join(parts)
+
+
+def cuda_filters_available() -> bool:
+    try:
+        result = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, timeout=10)
+        return result.returncode == 0 and "scale_cuda" in result.stdout and "overlay_cuda" in result.stdout
+    except Exception:
+        return False
+
+
+def build_cuda_filter(p: RenderParams, vw: int, vh: int) -> str:
+    """GPU composition: CUDA scale + CUDA overlay. No blur or CPU video filters."""
+    width, height = output_size(p)
+    safe_w, safe_h = width * 0.84, height * 0.84
+    base = max(safe_w / vw, safe_h / vh) if p.crop_to_fill else min(safe_w / vw, safe_h / vh)
+    scale = base * (p.zoom / 100)
+    sw, sh = even(vw * scale), even(vh * scale)
+    x = int((width - sw) / 2 + (p.offset_x / 100) * safe_w * 0.5)
+    y = int((height - sh) / 2 + (p.offset_y / 100) * safe_h * 0.5)
+    return (
+        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,format=nv12,hwupload_cuda[bg];"
+        f"[0:v]scale_cuda={sw}:{sh}:format=nv12[fg];"
+        f"[bg][fg]overlay_cuda={x}:{y}[out]"
+    )
 
 
 @lru_cache(maxsize=16)
@@ -227,7 +233,7 @@ def render(video: str, background: str, output: str, p: RenderParams,
     if p.encoder == "nvenc" and selected_gpu is None:
         raise RuntimeError("Nenhuma das GPUs NVIDIA disponibiliza NVENC para o codec selecionado.")
     use_nvenc_first = p.encoder in {"auto", "nvenc"} and selected_gpu is not None
-    use_nvdec_first = nvdec_available()
+    use_nvdec_first = nvdec_available() and cuda_filters_available()
     started = time.monotonic()
 
     def run(use_nvdec: bool, use_nvenc: bool) -> int:
@@ -235,7 +241,8 @@ def render(video: str, background: str, output: str, p: RenderParams,
                "-progress", "pipe:1", "-filter_threads", threads, "-filter_complex_threads", threads]
         if use_nvdec:
             cmd += ["-hwaccel", "cuda", "-hwaccel_device", str(selected_gpu or 0)]
-        cmd += ["-i", video, "-loop", "1", "-i", background, "-filter_complex", graph,
+        active_graph = build_cuda_filter(p, vw, vh) if use_nvdec else graph
+        cmd += ["-i", video, "-loop", "1", "-i", background, "-filter_complex", active_graph,
                 "-map", "[out]"]
         if has_audio:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
@@ -272,7 +279,7 @@ def render(video: str, background: str, output: str, p: RenderParams,
     if use_nvenc_first:
         try:
             run(use_nvdec_first, True)
-            return f"NVENC GPU {selected_gpu}" + (" + NVDEC" if use_nvdec_first else "")
+            return f"NVENC GPU {selected_gpu}" + (" + NVDEC + CUDA scale/overlay" if use_nvdec_first else " (CPU filters + NVENC)")
         except Exception as exc:
             if p.encoder == "nvenc":
                 raise
