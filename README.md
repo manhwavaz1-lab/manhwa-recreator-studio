@@ -1,71 +1,54 @@
-# Manhwa Studio — moldura, marca-d’água e limpeza de metadados
+# Manhwa Studio — upload local e renderização automática na GPU
 
-Aplicação web para receber um link de vídeo do YouTube, baixar vídeos acessíveis do YouTube por meio de um backend próprio, aplicar uma imagem PNG/JPEG como moldura, desfocar uma região de marca-d’água própria e exportar um novo vídeo.
+O Manhwa Studio recebe um vídeo e uma imagem de borda/moldura pelo navegador, envia os dois arquivos ao computador virtual Vast.ai, renderiza com FFmpeg usando a GPU NVIDIA quando suportado e devolve o MP4 pronto no mesmo site.
 
-## Fluxo de uso
+## Fluxo do usuário
 
-1. Cole o link de um único vídeo do YouTube.
-2. Envie a imagem PNG ou JPEG que será usada como fundo/moldura.
-3. Opcionalmente, ative **Ocultar sua marca-d’água** e informe a posição e o tamanho da região em porcentagem do quadro original.
-4. Clique em **Criar vídeo com 1 clique**.
-5. O navegador compõe o vídeo localmente usando Canvas e MediaRecorder, sem enviar o arquivo de mídia para um serviço de renderização.
-6. O arquivo final WebM é baixado automaticamente.
+1. Abrir o endereço do site publicado na instância Vast.ai.
+2. Selecionar o vídeo no computador.
+3. Selecionar a imagem PNG/JPEG da borda.
+4. Clicar em **Criar vídeo com 1 clique**.
+5. Acompanhar o envio e a renderização e baixar o MP4 final.
 
-O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite configurado no backend do YouTube é 7 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
+Não existe campo de URL de API, API Key, link do YouTube, Cloudflare Tunnel ou ngrok na interface. O site detecta a GPU automaticamente usando o mesmo endereço de origem da página. Os arquivos selecionados no navegador são enviados diretamente ao backend da instância.
 
-## Backend do YouTube
+## Inicialização na Vast.ai
 
-O backend fica em `youtube-backend/` e usa FastAPI, yt-dlp e FFmpeg. Ele aceita links de vídeo do YouTube, e aceita vídeos públicos e não listados, inclusive Shorts. Playlists são recusadas; vídeos privados ou que exijam autenticação dependem de acesso permitido pelo YouTube. O limite configurado é de 7 GB por arquivo; a duração não é limitada pelo aplicativo, mas vídeos longos podem exceder esse limite de tamanho ou os recursos disponíveis no Render. Há um limite simples de quatro solicitações por endereço IP por hora e até dois downloads simultâneos por instância. O download é assíncrono para evitar manter uma única requisição HTTP aberta durante todo o processamento.
+Requisitos da imagem da instância: GPU NVIDIA com drivers funcionais, FFmpeg instalado, Python 3.11+, Node.js e npm.
 
-### Implantar no Render
+Na instância, clone este repositório e inicie o serviço uma vez:
 
-1. Crie um novo serviço no Render a partir deste repositório e use o Blueprint `render.yaml` (ou crie um serviço Docker manualmente).
-2. O serviço Docker deve usar `youtube-backend/Dockerfile`; o contexto Docker é `youtube-backend`.
-3. Configure a variável `CORS_ORIGINS` com a origem exata do app publicado no Lovable, por exemplo `https://seu-projeto.lovable.app`. Não inclua caminhos depois do domínio.
-4. Após o deploy, teste `https://SEU-SERVICO.onrender.com/health`. A resposta deve conter `"status":"ok"`.
-5. No projeto Lovable, configure a variável de ambiente `VITE_YOUTUBE_BACKEND_URL` com a URL base do serviço Render, sem barra no final, por exemplo `https://seu-servico.onrender.com`.
-6. Sincronize/republique o app Lovable para incorporar a variável de ambiente.
-
-O plano gratuito do Render pode entrar em suspensão por inatividade e tem limites de CPU, memória e duração de requisição. Vídeos grandes podem falhar nesse plano; para uso contínuo, considere um serviço com mais recursos. O backend usa armazenamento temporário e apaga os arquivos após a resposta. Não configure armazenamento permanente para os downloads.
-
-### Executar localmente
-
-Requer Python 3.11+ e FFmpeg instalado e disponível no PATH.
-
-```sh
-cd youtube-backend
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+```bash
+git clone -b vast-direct-gpu-render https://github.com/manhwavaz1-lab/manhwa-recreator-studio.git
+cd manhwa-recreator-studio
+bash youtube-backend/start_vastai.sh
 ```
 
-No ambiente do frontend, configure:
+O script instala as dependências Python e Node, compila a interface, inicia a API GPU em `127.0.0.1:8001` e publica o site na porta HTTP `8000`. No painel da Vast.ai, exponha somente a porta HTTP 8000 e abra a URL HTTPS que a própria Vast.ai apresentar em Connect.
 
-```env
-VITE_YOUTUBE_BACKEND_URL=http://127.0.0.1:8000
-```
+A porta 8001 não deve ser publicada. A API é acessada pelo proxy do próprio site, no mesmo domínio. O usuário final não precisa preencher endereço de API nem chave.
 
-## Processamento e limitações
+Para reiniciar automaticamente junto com a instância, configure o comando de inicialização da instância Vast.ai para executar o script no diretório do projeto.
 
-- O download do YouTube acontece no backend. O vídeo baixado é enviado de volta ao navegador para a composição.
-- Toda a composição visual e a gravação final são executadas localmente no navegador. A exportação padrão é WebM pelo MediaRecorder.
-- A imagem enviada preenche o fundo; o vídeo é centralizado e dimensionado sem cortar o quadro original.
-- A opção de marca-d’água aplica desfoque somente à região definida pelo usuário. Ela não reconstrói o cenário que existia atrás do logotipo.
-- O renderizador local usa MediaRecorder e produz WebM. A disponibilidade e o desempenho em 4K dependem do navegador, da memória RAM e do hardware do computador.
-- FFmpeg.wasm é carregado sob demanda de CDN e remuxa o WebM com `-map_metadata -1`, `-map_chapters -1` e `-c copy`. Isso remove metadados descritivos do contêiner, como título, comentário, descrição, data e capítulos.
-- Informações técnicas necessárias para reprodução — codec, dimensões, duração, timestamps e estrutura do contêiner — continuam presentes.
-- O navegador precisa ter memória suficiente para trabalhar com o vídeo baixado e a composição. Arquivos grandes podem exigir bastante RAM.
+## Renderização
 
-## Desenvolvimento
+- Upload com progresso real do navegador para o servidor.
+- Renderização assíncrona com progresso, velocidade e estimativa de tempo restante.
+- FFmpeg tenta usar NVDEC para decodificar, filtros CUDA `scale_cuda` e `overlay_cuda` para composição e NVENC para codificar.
+- Se os filtros CUDA não estiverem disponíveis, o renderizador usa filtros CPU; NVENC continua sendo selecionado quando disponível.
+- Saída MP4 H.264/H.265 com áudio AAC, pixel format compatível e `+faststart`.
+- Metadados globais, metadados de streams e capítulos são removidos na exportação.
+- O processamento ocorre no disco temporário da instância; mantenha espaço livre suficiente para o vídeo original e o arquivo final.
 
-Requer Node.js compatível com Vite 8.
+## Segurança e uso
 
-```sh
-npm install
+Esta configuração foi pensada para uma instância privada de uso pessoal. A API não solicita uma chave digitada na interface; mantenha a porta pública somente para o site que você utiliza e não compartilhe o endereço da instância. Há limitação de requisições por IP e limite máximo de tamanho de arquivo configurável por `MAX_FILE_BYTES`.
+
+## Desenvolvimento local
+
+```bash
+npm ci
 npm run dev
-npm run lint
-npm test
-npm run build
 ```
+
+Para o backend local, inicie FastAPI na porta 8001; o proxy do Vite encaminha `/api` e `/health` automaticamente.

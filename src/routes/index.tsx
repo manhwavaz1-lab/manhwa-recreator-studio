@@ -1,90 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X, Youtube } from "lucide-react";
+import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck, Upload, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({ component: Studio });
 
-type FfmpegInstance = {
-  load: () => Promise<void>;
-  FS: (operation: "writeFile" | "readFile" | "unlink", ...args: (string | Uint8Array)[]) => Uint8Array | void;
-  run: (...args: string[]) => Promise<void>;
-};
-
-declare global {
-  interface Window {
-    FFmpeg?: { createFFmpeg: (options: { log: boolean; corePath: string }) => FfmpegInstance };
-  }
-}
-
 type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; nvenc_h264: boolean; nvenc_h265: boolean; nvdec: boolean; cpus: number; render_threads: number };
 
-const RENDER_BACKEND_URL = ((import.meta.env["VITE_RENDER_API_URL"] as string | undefined) || "").replace(/\/$/, "");
-
-async function detectGpuServer(overrideUrl?: string): Promise<GpuInfo | null> {
-  const base = (overrideUrl || RENDER_BACKEND_URL || window.location.origin).replace(/\/$/, "");
+async function detectGpuServer(): Promise<GpuInfo | null> {
+  const base = window.location.origin;
   try {
     const res = await fetch(base + "/api/capabilities", { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
-    return { base, ...((await res.json()) as Omit<GpuInfo, "base">) };
-  } catch { return null; }
-}
-let ffmpegLoader: Promise<FfmpegInstance> | null = null;
-
-async function getFfmpeg() {
-  if (!ffmpegLoader) {
-    ffmpegLoader = (async () => {
-      if (!window.FFmpeg) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js";
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error("Não foi possível baixar o módulo FFmpeg. Verifique sua conexão e tente novamente."));
-          document.head.appendChild(script);
-        });
-      }
-      if (!window.FFmpeg) throw new Error("O módulo FFmpeg não ficou disponível no navegador.");
-      const ffmpeg = window.FFmpeg.createFFmpeg({
-        log: false,
-        corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"
-      });
-      await ffmpeg.load();
-      return ffmpeg;
-    })().catch((error) => {
-      ffmpegLoader = null;
-      throw error;
-    });
+    return { base, ...(await res.json() as Omit<GpuInfo, "base">) };
+  } catch {
+    return null;
   }
-  return ffmpegLoader;
-}
-
-async function cleanContainerMetadata(source: Blob) {
-  const ffmpeg = await getFfmpeg();
-  const input = "manhwa-input.webm";
-  const output = "manhwa-clean.webm";
-  ffmpeg.FS("writeFile", input, new Uint8Array(await source.arrayBuffer()));
-  await ffmpeg.run(
-    "-i", input,
-    "-map", "0",
-    "-map_metadata", "-1",
-    "-map_chapters", "-1",
-    "-c", "copy",
-    "-fflags", "+bitexact",
-    "-metadata", "encoder=",
-    "-metadata", "title=",
-    "-metadata", "comment=",
-    "-metadata", "description=",
-    "-metadata", "creation_time=",
-    output
-  );
-  const result = ffmpeg.FS("readFile", output) as Uint8Array;
-  ffmpeg.FS("unlink", input);
-  ffmpeg.FS("unlink", output);
-  return new Blob([new Uint8Array(result)], { type: "video/webm" });
 }
 
 function Studio() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
   const [backgroundPreview, setBackgroundPreview] = useState("");
@@ -99,29 +33,17 @@ function Studio() {
   const [renderedType, setRenderedType] = useState("");
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [hideWatermark, setHideWatermark] = useState(false);
-  const [markX, setMarkX] = useState(80);
-  const [markY, setMarkY] = useState(85);
-  const [markW, setMarkW] = useState(15);
-  const [markH, setMarkH] = useState(8);
   const [videoZoom, setVideoZoom] = useState(100);
   const [cropToFill, setCropToFill] = useState(true);
   const [videoOffsetX, setVideoOffsetX] = useState(0);
   const [videoOffsetY, setVideoOffsetY] = useState(0);
-  const [renderMode, setRenderMode] = useState<"gpu" | "local">("local");
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [renderApiUrl, setRenderApiUrl] = useState(RENDER_BACKEND_URL || "");
   useEffect(() => {
-    if (!renderApiUrl.trim()) { setGpuInfo(null); setGpuChecked(true); return; }
-    setGpuChecked(false);
-    void detectGpuServer(renderApiUrl.trim()).then((info) => {
-      setGpuInfo(info);
-      setGpuChecked(true);
-      if (info) setRenderMode("gpu");
-    });
-  }, [renderApiUrl]);
+    let cancelled = false;
+    void detectGpuServer().then((info) => { if (!cancelled) { setGpuInfo(info); setGpuChecked(true); } });
+    return () => { cancelled = true; };
+  }, []);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -138,22 +60,21 @@ function Studio() {
   async function createVideoOnGpu() {
     if (!gpuInfo) { setError("Servidor GPU não detectado nesta máquina."); return; }
     const base = gpuInfo.base;
-    if (!backgroundFile || (!videoFile && !youtubeUrl)) { setError("Envie a moldura e um vídeo ou link do YouTube."); return; }
+    if (!backgroundFile || !videoFile) { setError("Envie o vídeo e a imagem da borda."); return; }
     setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
     try {
       const form = new FormData();
       form.append("background", backgroundFile);
-      if (videoFile) form.append("video", videoFile); else form.append("youtube_url", youtubeUrl);
+      form.append("video", videoFile);
       form.append("params", JSON.stringify({
         output_format: outputFormat, resolution: outputResolution, crop_to_fill: cropToFill, zoom: videoZoom,
-        offset_x: videoOffsetX, offset_y: videoOffsetY, hide_watermark: hideWatermark,
-        mark_x: markX, mark_y: markY, mark_w: markW, mark_h: markH,
+        offset_x: videoOffsetX, offset_y: videoOffsetY,
         fps: outputFps, codec: outputCodec, encoder: encoderMode, quality: qualityMode
       }));
       const jobId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", base + "/api/render");
-        if (apiKey.trim()) xhr.setRequestHeader("Authorization", "Bearer " + apiKey.trim());
+        
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.floor((e.loaded / e.total) * 20)); };
         xhr.onload = () => {
           try {
@@ -161,12 +82,12 @@ function Studio() {
             if (xhr.status < 300 && data.job_id) resolve(data.job_id); else reject(new Error(data.detail || "Servidor recusou o pedido."));
           } catch { reject(new Error("Resposta inválida do servidor GPU.")); }
         };
-        xhr.onerror = () => reject(new Error("Não foi possível conectar ao servidor GPU. Confirme que o start_vastai.sh está rodando nesta máquina."));
+        xhr.onerror = () => reject(new Error("Não foi possível conectar ao servidor GPU. Confirme que o backend está rodando na porta 8000 da instância Vast.ai."));
         xhr.send(form);
       });
       for (;;) {
         await new Promise((r) => setTimeout(r, 1000));
-        const res = await fetch(base + "/api/render/jobs/" + jobId, { headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {} });
+        const res = await fetch(base + "/api/render/jobs/" + jobId, { headers: {} });
         if (!res.ok) throw new Error("Não foi possível consultar o andamento da renderização.");
         const job = (await res.json()) as { status: string; progress: number; message: string; engine?: string; elapsed_seconds?: number; eta_seconds?: number; speed?: string };
         setMessage(job.message + (job.speed ? " · " + job.speed : "") + (job.eta_seconds != null ? " · restam ~" + Math.ceil(job.eta_seconds / 60) + " min" : ""));
@@ -177,14 +98,14 @@ function Studio() {
           break;
         }
       }
-      const res = await fetch(base + "/api/render/" + jobId + "/file", { headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {} });
+      const res = await fetch(base + "/api/render/" + jobId + "/file", { headers: {} });
       if (!res.ok) throw new Error("Falha ao baixar o vídeo renderizado.");
       const blob = await res.blob();
       const outputUrl = createTrackedUrl(blob);
       setRenderedUrl(outputUrl); setProgress(100);
       const link = document.createElement("a");
       link.href = outputUrl;
-      link.download = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
+      link.download = ((videoFile?.name || "video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
       document.body.appendChild(link); link.click(); link.remove();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha na renderização por GPU.");
@@ -310,16 +231,6 @@ function Studio() {
         ctx.drawImage(video, x, y, videoW, videoH);
         ctx.restore();
 
-        if (hideWatermark) {
-          const sx = (Math.max(0, Math.min(99, markX)) / 100) * video.videoWidth;
-          const sy = (Math.max(0, Math.min(99, markY)) / 100) * video.videoHeight;
-          const sw = (Math.max(1, Math.min(100 - markX, markW)) / 100) * video.videoWidth;
-          const sh = (Math.max(1, Math.min(100 - markY, markH)) / 100) * video.videoHeight;
-          ctx.save();
-          ctx.filter = "blur(14px)";
-          ctx.drawImage(video, sx, sy, sw, sh, x + sx * videoScale, y + sy * videoScale, sw * videoScale, sh * videoScale);
-          ctx.restore();
-        }
       };
 
       draw();
@@ -435,19 +346,13 @@ function Studio() {
     <div className="oneclick-shell">
       <header className="oneclick-header">
         <div className="oneclick-brand"><span className="oneclick-mark">M</span><div><strong>MANHWA STUDIO</strong><small>VIDEO FRAME CREATOR</small></div></div>
-        <span className="oneclick-status"><span/> DOWNLOAD + RENDERIZAÇÃO LOCAL</span>
+        <span className="oneclick-status"><span/> UPLOAD LOCAL + RENDERIZAÇÃO GPU AUTOMÁTICA</span>
       </header>
       <main className="oneclick-main">
-        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
+        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Envie o vídeo e a imagem da borda pelo computador. Clique uma vez: o computador virtual recebe os arquivos, usa a GPU para renderizar e devolve o MP4 pronto.</p></div>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
-          <div className="oneclick-card-title"><ShieldCheck/><div><strong>CONEXÃO COM O SERVIDOR VAST.AI</strong><small>Endereço público e chave de acesso informados no terminal da instância</small></div></div>
-          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>URL HTTPS do servidor Vast.ai (Cloudflare Tunnel)
-            <input type="url" value={renderApiUrl} onChange={(event)=>setRenderApiUrl(event.target.value)} placeholder="https://seu-tunel.trycloudflare.com" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
-          </label>
-          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>Chave de acesso do servidor (API_KEY)
-            <input type="password" autoComplete="off" value={apiKey} onChange={(event)=>setApiKey(event.target.value)} placeholder="Cole aqui a chave exibida ao iniciar o servidor" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
-          </label>
-          <p className="output-dimensions">API detectada: {gpuInfo ? gpuInfo.base : "não conectada"} · {gpuInfo ? "Conexão respondendo" : "Cole a URL HTTPS do túnel e aguarde a detecção"}</p>
+          <div className="oneclick-card-title"><ShieldCheck/><div><strong>COMPUTADOR GPU CONECTADO</strong><small>Conexão automática. Sem endereço ou chave para preencher.</small></div></div>
+          <p className="output-dimensions">{!gpuChecked ? "Conectando automaticamente à GPU..." : gpuInfo ? "Conectado: " + (gpuInfo.gpu || "servidor GPU") + " · " + (gpuInfo.gpu_memory || "") + " · NVENC " + (gpuInfo.nvenc_h264 ? "pronto" : "indisponível") : "Servidor GPU indisponível. Abra o site pelo endereço da instância de computação."}</p>
         </section>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
@@ -469,14 +374,14 @@ function Studio() {
           </div>
           <div className="output-settings-grid" style={{ marginTop: 12 }}>
             <label>Motor de codificação
-              <select value={encoderMode} onChange={(event) => setEncoderMode(event.target.value as "auto" | "nvenc" | "cpu")} disabled={busy || renderMode !== "gpu"}>
+              <select value={encoderMode} onChange={(event) => setEncoderMode(event.target.value as "auto" | "nvenc" | "cpu")} disabled={busy}>
                 <option value="auto">Automático · GPU com fallback CPU</option>
                 <option value="nvenc" disabled={!gpuInfo?.nvenc_h264 && !gpuInfo?.nvenc_h265}>NVIDIA NVENC</option>
                 <option value="cpu">CPU</option>
               </select>
             </label>
             <label>Codec
-              <select value={outputCodec} onChange={(event) => setOutputCodec(event.target.value as "h264" | "h265")} disabled={busy || renderMode !== "gpu"}>
+              <select value={outputCodec} onChange={(event) => setOutputCodec(event.target.value as "h264" | "h265")} disabled={busy}>
                 <option value="h264">H.264 · maior compatibilidade</option>
                 <option value="h265">H.265 / HEVC · arquivo menor</option>
               </select>
@@ -484,39 +389,28 @@ function Studio() {
           </div>
           <div className="output-settings-grid" style={{ marginTop: 12 }}>
             <label>FPS
-              <select value={outputFps} onChange={(event) => setOutputFps(event.target.value as typeof outputFps)} disabled={busy || renderMode !== "gpu"}>
+              <select value={outputFps} onChange={(event) => setOutputFps(event.target.value as typeof outputFps)} disabled={busy}>
                 <option value="original">Manter original</option>
                 <option value="24">24 FPS</option><option value="30">30 FPS</option><option value="50">50 FPS</option><option value="60">60 FPS</option>
               </select>
             </label>
             <label>Perfil
-              <select value={qualityMode} onChange={(event) => setQualityMode(event.target.value as typeof qualityMode)} disabled={busy || renderMode !== "gpu"}>
+              <select value={qualityMode} onChange={(event) => setQualityMode(event.target.value as typeof qualityMode)} disabled={busy}>
                 <option value="speed">Velocidade máxima</option><option value="balanced">Equilibrado</option><option value="quality">Qualidade máxima</option>
               </select>
             </label>
           </div>
-          <p className="output-dimensions">{!gpuChecked ? "Conectando ao servidor de renderização..." : gpuInfo ? "Servidor: " + (gpuInfo.gpu || "CPU") + (gpuInfo.gpu_memory ? " · " + gpuInfo.gpu_memory : "") + " · NVENC H.264 " + (gpuInfo.nvenc_h264 ? "disponível" : "indisponível") + " · NVENC H.265 " + (gpuInfo.nvenc_h265 ? "disponível" : "indisponível") + " · NVDEC " + (gpuInfo.nvdec ? "disponível" : "indisponível") + " · " + gpuInfo.cpus + " CPUs" : "Servidor de GPU não conectado. Configure VITE_RENDER_API_URL."}</p>
-          <p className="output-dimensions">Saída: {outputFormat} · {outputResolution} · {renderMode === "gpu" ? "MP4 " + outputCodec.toUpperCase() + " · FFmpeg remoto" : "WebM · navegador"}</p>
+          <p className="output-dimensions">{!gpuChecked ? "Conectando ao servidor de renderização..." : gpuInfo ? "Servidor: " + (gpuInfo.gpu || "CPU") + (gpuInfo.gpu_memory ? " · " + gpuInfo.gpu_memory : "") + " · NVENC H.264 " + (gpuInfo.nvenc_h264 ? "disponível" : "indisponível") + " · NVENC H.265 " + (gpuInfo.nvenc_h265 ? "disponível" : "indisponível") + " · NVDEC " + (gpuInfo.nvdec ? "disponível" : "indisponível") + " · " + gpuInfo.cpus + " CPUs" : "Servidor GPU indisponível. Abra o site pelo endereço da instância Vast.ai."}</p>
+          <p className="output-dimensions">Saída: {outputFormat} · {outputResolution} · {"MP4 " + outputCodec.toUpperCase() + " · GPU remota"}</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
-            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Link do YouTube</strong><small>Vídeo do YouTube</small></div></div>
+            <div className="oneclick-card-title"><FileVideo/><div><strong>1. Enviar vídeo</strong><small>Selecione o arquivo no seu computador</small></div></div>
             <button className="oneclick-drop" onClick={() => videoInput.current?.click()} disabled={busy}>
-              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Selecionar vídeo baixado</strong><small>Escolha o arquivo MP4 salvo no computador</small></>}
+              {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Selecionar vídeo</strong><small>MP4, MOV, MKV ou WebM</small></>}
             </button>
-            <input ref={videoInput} type="file" accept="video/*,.mp4,.webm,.mov,.mkv" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
-            <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
-              <button type="button" onClick={() => window.open("https://app.ytdown.to/en38/","_blank","noopener,noreferrer")} disabled={busy} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #ef4055",background:"#211016",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>
-                <Youtube size={14} style={{display:"inline",verticalAlign:"middle",marginRight:6}}/> ABRIR YTDOWN PARA BAIXAR
-              </button>
-              <button type="button" onClick={() => videoInput.current?.click()} disabled={busy} style={{padding:"10px 14px",borderRadius:8,border:"1px solid #414958",background:"#171b23",color:"#fff",cursor:"pointer",fontSize:11}}>
-                SELECIONAR MP4
-              </button>
-            </div>
-            <label style={{display:"block",marginTop:12,fontSize:10,color:"#aeb6c4"}}>Link do YouTube (cole também no YTDown)</label>
-            <input id="youtube-link" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setRenderedUrl(""); setError(""); }} disabled={busy} type="url" placeholder="https://www.youtube.com/watch?v=..." style={{width:"100%",marginTop:7,padding:"12px",borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6",fontSize:11}}/>
-            <p style={{fontSize:9,color:"#818b9a",lineHeight:1.6,marginTop:8}}>Cole o mesmo link no YTDown, escolha MP4 e baixe o arquivo. Depois selecione o vídeo aqui para aplicar a moldura. Use apenas conteúdo que você tenha direito ou autorização para baixar e processar.</p>
-            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Último download: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
+            <input ref={videoInput} type="file" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
+            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Vídeo selecionado: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Remover vídeo selecionado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileImage/><div><strong>2. Fundo / moldura</strong><small>PNG ou JPEG que ficará ao redor</small></div></div>
@@ -526,20 +420,6 @@ function Studio() {
             <input ref={backgroundInput} type="file" accept="image/png,image/jpeg" hidden onChange={(event) => selectBackground(event.target.files?.[0])}/>
             {backgroundFile && <div className="oneclick-file"><Check size={15}/><span>{backgroundFile.name}</span><button onClick={() => { setBackgroundFile(null); setBackgroundPreview(""); setRenderedUrl(""); }} aria-label="Remover imagem"><X size={15}/></button></div>}
           </div>
-        </section>
-        <section className="oneclick-card" style={{ marginTop: 18 }}>
-          <div className="oneclick-card-title"><ShieldCheck/><div><strong>3. Ocultar sua marca-d’água</strong><small>Opcional · desfoque somente na área indicada</small></div></div>
-          <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "14px 0" }}>
-            <input type="checkbox" checked={hideWatermark} onChange={(event) => setHideWatermark(event.target.checked)} disabled={busy}/>
-            Ocultar marca-d’água própria neste vídeo
-          </label>
-          {hideWatermark && <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-            <label>Esquerda (%)<input type="number" min="0" max="99" value={markX} disabled={busy} onChange={(event) => setMarkX(Number(event.target.value))}/></label>
-            <label>Topo (%)<input type="number" min="0" max="99" value={markY} disabled={busy} onChange={(event) => setMarkY(Number(event.target.value))}/></label>
-            <label>Largura (%)<input type="number" min="1" max="100" value={markW} disabled={busy} onChange={(event) => setMarkW(Number(event.target.value))}/></label>
-            <label>Altura (%)<input type="number" min="1" max="100" value={markH} disabled={busy} onChange={(event) => setMarkH(Number(event.target.value))}/></label>
-          </div>}
-          <p style={{ opacity: .72, fontSize: 12, marginTop: 10 }}>Informe a posição e o tamanho aproximados da sua marca em porcentagem do quadro original. O programa aplica desfoque nessa região; não reconstrói os pixels que estavam atrás do logotipo. Ajuste os valores para cada canal.</p>
         </section>
         <section className="oneclick-card" style={{ marginTop: 16 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>RECORTAR VÍDEO PARA A MOLDURA</strong><small>Escolha como preencher a janela e ajuste a área visível</small></div></div>
@@ -558,14 +438,14 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação em {outputFormat} e {outputResolution}. A imagem de fundo aparece inteira, sem cortes.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: outputFormat === "16:9" ? "16 / 9" : "9 / 16", backgroundSize: "contain", backgroundColor: "#000"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
-        <button className="oneclick-create" onClick={() => void (renderMode === "gpu" ? createVideoOnGpu() : createVideo())} disabled={busy || !backgroundFile || (!videoFile && !(renderMode === "gpu" && youtubeUrl))}>
+        <button className="oneclick-create" onClick={() => void createVideoOnGpu()} disabled={busy || !gpuInfo || !backgroundFile || !videoFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo do YouTube usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação são processadas localmente no navegador. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> O vídeo e a moldura são enviados ao computador virtual pela mesma página. O FFmpeg faz a composição e a renderização usando a GPU quando disponível. O MP4 final é devolvido pelo site para visualização e download; metadados globais, de faixas e capítulos são removidos na exportação.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
