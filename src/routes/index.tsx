@@ -171,7 +171,7 @@ function Studio() {
       setRenderedUrl(outputUrl); setProgress(100);
       const link = document.createElement("a");
       link.href = outputUrl;
-      link.download = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
+      link.download = ((videoFile?.name || "video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
       document.body.appendChild(link); link.click(); link.remove();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha na renderização por GPU.");
@@ -415,7 +415,7 @@ function Studio() {
         <span className="oneclick-status"><span/> UPLOAD LOCAL + RENDERIZAÇÃO GPU AUTOMÁTICA</span>
       </header>
       <main className="oneclick-main">
-        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. Envie o vídeo e a imagem da borda. Um clique transfere os arquivos ao computador virtual, renderiza na GPU e devolve o MP4 pronto.</p></div>
+        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Envie o vídeo e a imagem da borda pelo computador. Clique uma vez: o computador virtual recebe os arquivos, usa a GPU para renderizar e devolve o MP4 pronto.</p></div>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><ShieldCheck/><div><strong>COMPUTADOR GPU CONECTADO</strong><small>Conexão automática. Sem endereço ou chave para preencher.</small></div></div>
           <p className="output-dimensions">{!gpuChecked ? "Conectando automaticamente à GPU..." : gpuInfo ? "Conectado: " + (gpuInfo.gpu || "servidor GPU") + " · " + (gpuInfo.gpu_memory || "") + " · NVENC " + (gpuInfo.nvenc_h264 ? "pronto" : "indisponível") : "Servidor GPU indisponível. Abra o site pelo endereço da instância de computação."}</p>
@@ -455,7 +455,7 @@ function Studio() {
           </div>
           <div className="output-settings-grid" style={{ marginTop: 12 }}>
             <label>FPS
-              <select value={outputFps} onChange={(event) => setOutputFps(event.target.value as typeof outputFps)} disabled={busy || renderMode !== "gpu"}>
+              <select value={outputFps} onChange={(event) => setOutputFps(event.target.value as typeof outputFps)} disabled={busy}>
                 <option value="original">Manter original</option>
                 <option value="24">24 FPS</option><option value="30">30 FPS</option><option value="50">50 FPS</option><option value="60">60 FPS</option>
               </select>
@@ -466,7 +466,7 @@ function Studio() {
               </select>
             </label>
           </div>
-          <p className="output-dimensions">{!gpuChecked ? "Conectando ao servidor de renderização..." : gpuInfo ? "Servidor: " + (gpuInfo.gpu || "CPU") + (gpuInfo.gpu_memory ? " · " + gpuInfo.gpu_memory : "") + " · NVENC H.264 " + (gpuInfo.nvenc_h264 ? "disponível" : "indisponível") + " · NVENC H.265 " + (gpuInfo.nvenc_h265 ? "disponível" : "indisponível") + " · NVDEC " + (gpuInfo.nvdec ? "disponível" : "indisponível") + " · " + gpuInfo.cpus + " CPUs" : "Servidor de GPU não conectado. Configure VITE_RENDER_API_URL."}</p>
+          <p className="output-dimensions">{!gpuChecked ? "Conectando ao servidor de renderização..." : gpuInfo ? "Servidor: " + (gpuInfo.gpu || "CPU") + (gpuInfo.gpu_memory ? " · " + gpuInfo.gpu_memory : "") + " · NVENC H.264 " + (gpuInfo.nvenc_h264 ? "disponível" : "indisponível") + " · NVENC H.265 " + (gpuInfo.nvenc_h265 ? "disponível" : "indisponível") + " · NVDEC " + (gpuInfo.nvdec ? "disponível" : "indisponível") + " · " + gpuInfo.cpus + " CPUs" : "Servidor GPU indisponível. Abra o site pelo endereço da instância Vast.ai."}</p>
           <p className="output-dimensions">Saída: {outputFormat} · {outputResolution} · {"MP4 " + outputCodec.toUpperCase() + " · GPU remota"}</p>
         </section>
         <section className="oneclick-grid">
