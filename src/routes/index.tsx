@@ -16,21 +16,19 @@ declare global {
   }
 }
 
-type GpuInfo = { base: string; gpu: string; nvenc: boolean; cpus: number };
+type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; nvenc_h264: boolean; nvenc_h265: boolean; nvdec: boolean; cpus: number; render_threads: number };
+
+const RENDER_BACKEND_URL = ((import.meta.env["VITE_RENDER_API_URL"] as string | undefined) || "").replace(/\/$/, "");
 
 async function detectGpuServer(): Promise<GpuInfo | null> {
-  const hosts = Array.from(new Set([window.location.hostname, "localhost", "127.0.0.1"]));
-  for (const host of hosts) {
-    const base = "http://" + host + ":8000";
-    try {
-      const res = await fetch(base + "/api/capabilities", { signal: AbortSignal.timeout(3000) });
-      if (res.ok) return { base, ...((await res.json()) as Omit<GpuInfo, "base">) };
-    } catch { /* tenta o próximo */ }
-  }
-  return null;
+  const base = RENDER_BACKEND_URL || window.location.origin;
+  try {
+    const res = await fetch(base + "/api/capabilities", { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    return { base, ...((await res.json()) as Omit<GpuInfo, "base">) };
+  } catch { return null; }
 }
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
-const YOUTUBE_BACKEND_URL = ((import.meta.env["VITE_YOUTUBE_BACKEND_URL"] as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
 
 async function getFfmpeg() {
   if (!ffmpegLoader) {
@@ -92,7 +90,11 @@ function Studio() {
   const [backgroundPreview, setBackgroundPreview] = useState("");
   const [backgroundAspectRatio, setBackgroundAspectRatio] = useState("16 / 9");
   const [outputFormat, setOutputFormat] = useState<"16:9" | "9:16">("16:9");
-  const [outputResolution, setOutputResolution] = useState<"1080p" | "4K">("1080p");
+  const [outputResolution, setOutputResolution] = useState<"720p" | "1080p" | "1440p" | "4K">("1080p");
+  const [outputFps, setOutputFps] = useState<"original" | "24" | "30" | "50" | "60">("original");
+  const [outputCodec, setOutputCodec] = useState<"h264" | "h265">("h264");
+  const [encoderMode, setEncoderMode] = useState<"auto" | "nvenc" | "cpu">("auto");
+  const [qualityMode, setQualityMode] = useState<"speed" | "balanced" | "quality">("balanced");
   const [renderedUrl, setRenderedUrl] = useState("");
   const [renderedType, setRenderedType] = useState("");
   const [progress, setProgress] = useState(0);
@@ -141,7 +143,8 @@ function Studio() {
       form.append("params", JSON.stringify({
         output_format: outputFormat, resolution: outputResolution, crop_to_fill: cropToFill, zoom: videoZoom,
         offset_x: videoOffsetX, offset_y: videoOffsetY, hide_watermark: hideWatermark,
-        mark_x: markX, mark_y: markY, mark_w: markW, mark_h: markH
+        mark_x: markX, mark_y: markY, mark_w: markW, mark_h: markH,
+        fps: outputFps, codec: outputCodec, encoder: encoderMode, quality: qualityMode
       }));
       const jobId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -158,18 +161,22 @@ function Studio() {
       });
       for (;;) {
         await new Promise((r) => setTimeout(r, 1000));
-        const res = await fetch(base + "/api/youtube/jobs/" + jobId);
-        const job = (await res.json()) as { status: string; progress: number; message: string };
-        setMessage(job.message);
+        const res = await fetch(base + "/api/render/jobs/" + jobId);
+        if (!res.ok) throw new Error("Não foi possível consultar o andamento da renderização.");
+        const job = (await res.json()) as { status: string; progress: number; message: string; engine?: string; elapsed_seconds?: number; eta_seconds?: number; speed?: string };
+        setMessage(job.message + (job.speed ? " · " + job.speed : "") + (job.eta_seconds != null ? " · restam ~" + Math.ceil(job.eta_seconds / 60) + " min" : ""));
         if (job.status === "error") throw new Error(job.message);
         setProgress(20 + Math.floor(job.progress * 0.79));
-        if (job.status === "completed" && job.message.startsWith("Renderizado")) break;
+        if (job.status === "completed") {
+          setRenderedType("MP4 · " + outputCodec.toUpperCase() + (job.engine ? " · " + job.engine : ""));
+          break;
+        }
       }
       const res = await fetch(base + "/api/render/" + jobId + "/file");
       if (!res.ok) throw new Error("Falha ao baixar o vídeo renderizado.");
       const blob = await res.blob();
       const outputUrl = createTrackedUrl(blob);
-      setRenderedUrl(outputUrl); setRenderedType("MP4 · H.264"); setProgress(100);
+      setRenderedUrl(outputUrl); setProgress(100);
       const link = document.createElement("a");
       link.href = outputUrl;
       link.download = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
@@ -438,21 +445,43 @@ function Studio() {
             </label>
             <label>Resolução
               <select value={outputResolution} onChange={(event) => setOutputResolution(event.target.value as "1080p" | "4K")} disabled={busy}>
+                <option value="720p">HD · 720p</option>
                 <option value="1080p">Full HD · 1080p</option>
+                <option value="1440p">QHD · 1440p</option>
                 <option value="4K">Ultra HD · 4K</option>
               </select>
             </label>
           </div>
           <div className="output-settings-grid" style={{ marginTop: 12 }}>
-            <label>Motor de renderização
-              <select value={renderMode} onChange={(event) => setRenderMode(event.target.value as "gpu" | "local")} disabled={busy}>
-                <option value="gpu" disabled={!gpuInfo}>GPU {gpuInfo ? "· " + (gpuInfo.gpu || "detectada") : "· não detectada"}</option>
-                <option value="local">Navegador (tempo real · WebM)</option>
+            <label>Motor de codificação
+              <select value={encoderMode} onChange={(event) => setEncoderMode(event.target.value as "auto" | "nvenc" | "cpu")} disabled={busy || renderMode !== "gpu"}>
+                <option value="auto">Automático · GPU com fallback CPU</option>
+                <option value="nvenc" disabled={!gpuInfo?.nvenc_h264 && !gpuInfo?.nvenc_h265}>NVIDIA NVENC</option>
+                <option value="cpu">CPU</option>
+              </select>
+            </label>
+            <label>Codec
+              <select value={outputCodec} onChange={(event) => setOutputCodec(event.target.value as "h264" | "h265")} disabled={busy || renderMode !== "gpu"}>
+                <option value="h264">H.264 · maior compatibilidade</option>
+                <option value="h265">H.265 / HEVC · arquivo menor</option>
               </select>
             </label>
           </div>
-          <p className="output-dimensions">{!gpuChecked ? "Detectando GPU..." : gpuInfo ? "GPU detectada: " + (gpuInfo.gpu || "servidor local") + " · " + (gpuInfo.nvenc ? "NVENC ativo" : "sem NVENC, usando CPU") + " · " + gpuInfo.cpus + " núcleos" : "Nenhuma GPU detectada: usando o navegador."}</p>
-          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · {renderMode === "gpu" ? "MP4 H.264 · renderização na GPU" : "WebM · renderização local no navegador"}</p>
+          <div className="output-settings-grid" style={{ marginTop: 12 }}>
+            <label>FPS
+              <select value={outputFps} onChange={(event) => setOutputFps(event.target.value as typeof outputFps)} disabled={busy || renderMode !== "gpu"}>
+                <option value="original">Manter original</option>
+                <option value="24">24 FPS</option><option value="30">30 FPS</option><option value="50">50 FPS</option><option value="60">60 FPS</option>
+              </select>
+            </label>
+            <label>Perfil
+              <select value={qualityMode} onChange={(event) => setQualityMode(event.target.value as typeof qualityMode)} disabled={busy || renderMode !== "gpu"}>
+                <option value="speed">Velocidade máxima</option><option value="balanced">Equilibrado</option><option value="quality">Qualidade máxima</option>
+              </select>
+            </label>
+          </div>
+          <p className="output-dimensions">{!gpuChecked ? "Conectando ao servidor de renderização..." : gpuInfo ? "Servidor: " + (gpuInfo.gpu || "CPU") + (gpuInfo.gpu_memory ? " · " + gpuInfo.gpu_memory : "") + " · NVENC H.264 " + (gpuInfo.nvenc_h264 ? "disponível" : "indisponível") + " · NVENC H.265 " + (gpuInfo.nvenc_h265 ? "disponível" : "indisponível") + " · NVDEC " + (gpuInfo.nvdec ? "disponível" : "indisponível") + " · " + gpuInfo.cpus + " CPUs" : "Servidor de GPU não conectado. Configure VITE_RENDER_API_URL."}</p>
+          <p className="output-dimensions">Saída: {outputFormat} · {outputResolution} · {renderMode === "gpu" ? "MP4 " + outputCodec.toUpperCase() + " · FFmpeg remoto" : "WebM · navegador"}</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
