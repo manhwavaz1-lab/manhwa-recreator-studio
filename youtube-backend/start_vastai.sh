@@ -63,6 +63,24 @@ print("NVENC H.265:", nvenc_available("h265"))
 print("NVDEC:", nvdec_available())
 PY
 
-echo "API: http://0.0.0.0:$PORT"
-echo "Configure VITE_RENDER_API_URL no Lovable com o endereço público HTTP(S) desta instância."
-exec uvicorn main:app --host 0.0.0.0 --port "$PORT" --workers 1 --timeout-keep-alive 300
+echo "API local: http://127.0.0.1:$PORT"
+echo "Iniciando API e túnel HTTPS temporário para uso com o site Lovable..."
+
+if ! command -v cloudflared >/dev/null 2>&1; then
+  ARCH="$(dpkg --print-architecture)"
+  case "$ARCH" in
+    amd64) CF_ARCH="amd64" ;;
+    arm64) CF_ARCH="arm64" ;;
+    *) echo "Arquitetura $ARCH sem pacote cloudflared automático; use um proxy HTTPS externo."; exit 1 ;;
+  esac
+  curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$CF_ARCH.deb" -o /tmp/cloudflared.deb
+  dpkg -i /tmp/cloudflared.deb
+fi
+
+uvicorn main:app --host 0.0.0.0 --port "$PORT" --workers 1 --timeout-keep-alive 300 &
+API_PID=$!
+cleanup() { kill "$API_PID" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+sleep 3
+curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null
+cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$PORT"
