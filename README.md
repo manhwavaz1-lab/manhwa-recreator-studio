@@ -1,15 +1,14 @@
 # Manhwa Studio — moldura, marca-d’água e limpeza de metadados
 
-Aplicação web para receber um link de vídeo do YouTube, baixar vídeos acessíveis do YouTube por meio de um backend próprio, aplicar uma imagem PNG/JPEG como moldura, desfocar uma região de marca-d’água própria e exportar um novo vídeo.
+Aplicação web para receber um link de vídeo do YouTube, baixar vídeos acessíveis do YouTube por meio de um backend próprio, aplicar uma imagem PNG/JPEG como moldura, compor a moldura e exportar um novo vídeo.
 
 ## Fluxo de uso
 
 1. Cole o link de um único vídeo do YouTube.
 2. Envie a imagem PNG ou JPEG que será usada como fundo/moldura.
-3. Opcionalmente, ative **Ocultar sua marca-d’água** e informe a posição e o tamanho da região em porcentagem do quadro original.
-4. Clique em **Criar vídeo com 1 clique**.
-5. O navegador compõe o vídeo localmente usando Canvas e MediaRecorder, sem enviar o arquivo de mídia para um serviço de renderização.
-6. O arquivo final WebM é baixado automaticamente.
+3. 4. Clique em **Criar vídeo com 1 clique**.
+5. O backend executado dentro da instância Vast.ai compõe e renderiza o vídeo usando FFmpeg, CUDA/NVDEC/NVENC quando os recursos estão disponíveis.
+6. O arquivo final MP4 H.264/AAC é baixado automaticamente.
 
 O serviço aceita links de vídeos públicos e não listados, incluindo Shorts e links youtu.be. Vídeos privados, removidos, bloqueados por região ou que exijam login podem não estar acessíveis. Playlists não são aceitas. O limite configurado no backend do YouTube é 7 GB. Use apenas vídeos que você possui ou tem autorização para processar. Não há login, cookies ou credenciais do YouTube no serviço.
 
@@ -50,13 +49,11 @@ VITE_YOUTUBE_BACKEND_URL=http://127.0.0.1:8000
 ## Processamento e limitações
 
 - O download do YouTube acontece no backend. O vídeo baixado é enviado de volta ao navegador para a composição.
-- Toda a composição visual e a gravação final são executadas localmente no navegador. A exportação padrão é WebM pelo MediaRecorder.
+- Na configuração Vast.ai, a composição visual e a gravação final são executadas no backend Python/FFmpeg dentro da própria instância. O navegador é apenas a interface.
 - A imagem enviada preenche o fundo; o vídeo é centralizado e dimensionado sem cortar o quadro original.
-- A opção de marca-d’água aplica desfoque somente à região definida pelo usuário. Ela não reconstrói o cenário que existia atrás do logotipo.
-- O renderizador local usa MediaRecorder e produz WebM. A disponibilidade e o desempenho em 4K dependem do navegador, da memória RAM e do hardware do computador.
-- FFmpeg.wasm é carregado sob demanda de CDN e remuxa o WebM com `-map_metadata -1`, `-map_chapters -1` e `-c copy`. Isso remove metadados descritivos do contêiner, como título, comentário, descrição, data e capítulos.
+- O renderizador Vast.ai usa `-map_metadata -1`, `-map_metadata:s -1` e `-map_chapters -1` para remover metadados globais, de faixas e capítulos no MP4 final.
 - Informações técnicas necessárias para reprodução — codec, dimensões, duração, timestamps e estrutura do contêiner — continuam presentes.
-- O navegador precisa ter memória suficiente para trabalhar com o vídeo baixado e a composição. Arquivos grandes podem exigir bastante RAM.
+- Para renderização acelerada, o FFmpeg tenta manter os quadros de vídeo na memória CUDA e usar `scale_cuda` + `overlay_cuda`, além de NVENC. Se os filtros CUDA não estiverem disponíveis, usa filtros CPU e ainda pode codificar por NVENC. O status do backend informa qual caminho foi utilizado.
 
 ## Desenvolvimento
 
@@ -69,3 +66,16 @@ npm run lint
 npm test
 npm run build
 ```
+
+## Executar diretamente na Vast.ai (sem túnel)
+
+1. Clone o repositório dentro da instância Vast.ai com GPU NVIDIA.
+2. No painel da instância, exponha a porta **8000/TCP** como serviço HTTP e use a URL HTTPS fornecida pela própria Vast.ai em **Connect**.
+3. No terminal, entre na pasta do repositório e execute `bash youtube-backend/start_vastai.sh`.
+4. Copie a `API_KEY` gerada no terminal.
+5. Na interface Manhwa Studio, cole a URL HTTPS da porta 8000 publicada pela Vast.ai e a API_KEY do backend.
+6. Confirme que o painel mostra a GPU, NVENC e NVDEC detectados antes de iniciar a renderização.
+
+O script não cria Cloudflare Tunnel, ngrok ou qualquer túnel de terceiros. A chave da API da Vast.ai não é usada pelo renderizador; ela serve apenas para administrar instâncias na plataforma. A `API_KEY` impressa pelo script é uma chave local do backend Manhwa Studio.
+
+A composição GPU usa `scale_cuda` e `overlay_cuda` quando ambos existem no FFmpeg, com NVDEC mantendo os quadros na memória CUDA. Caso contrário, o sistema recua para filtros CPU; NVENC pode continuar sendo usado para codificação. A opção Automático prioriza velocidade e compatibilidade. Vídeos longos precisam de espaço temporário livre pelo menos equivalente ao vídeo de entrada mais o MP4 de saída.
