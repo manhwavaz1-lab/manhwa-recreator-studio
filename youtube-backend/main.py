@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -10,34 +11,30 @@ from urllib.parse import urlparse
 
 import yt_dlp
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
-from gpu_render import RenderParams, nvenc_available, render
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from gpu_render import RenderParams, nvdec_available, nvenc_available, render
 from pydantic import BaseModel, HttpUrl
 from starlette.background import BackgroundTask
 
-app = FastAPI(title="Manhwa Studio YouTube Downloader", version="1.0.0")
-
+app = FastAPI(title="Manhwa Studio GPU Renderer", version="2.0.0")
 origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "*").split(",") if item.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    expose_headers=["Content-Disposition"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
-MAX_FILE_BYTES = 7 * 1024 * 1024 * 1024
+MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(7 * 1024 * 1024 * 1024)))
 RATE_WINDOW_SECONDS = 60 * 60
-RATE_LIMIT = int(os.getenv("RATE_LIMIT", "4"))
-JOB_TTL_SECONDS = 60 * 60
+RATE_LIMIT = int(os.getenv("RATE_LIMIT", "100"))
+JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
+jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
-jobs = {}
-rate_lock = Lock()
-jobs_lock = Lock()
-download_slots = BoundedSemaphore(int(os.getenv("DOWNLOAD_SLOTS", "2")))
-render_slots = BoundedSemaphore(int(os.getenv("RENDER_SLOTS", "3")))
+rate_lock, jobs_lock = Lock(), Lock()
+render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", "1"))))
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtube-nocookie.com"}
 
 
@@ -58,17 +55,21 @@ def check_rate_limit(ip: str) -> None:
 
 def validate_youtube_url(value: str) -> None:
     parsed = urlparse(value)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or host not in YOUTUBE_HOSTS:
+    if parsed.scheme != "https" or (parsed.hostname or "").lower() not in YOUTUBE_HOSTS:
         raise HTTPException(status_code=400, detail="Cole um link HTTPS válido do YouTube.")
     if parsed.path == "/playlist" or "list=" in parsed.query:
-        raise HTTPException(status_code=400, detail="Links de playlists não são aceitos. Cole o link de um único vídeo.")
+        raise HTTPException(status_code=400, detail="Links de playlists não são aceitos. Cole um único vídeo.")
 
 
 def update_job(job_id: str, **values) -> None:
     with jobs_lock:
         if job_id in jobs:
             jobs[job_id].update(values)
+
+
+def public_job(job: dict) -> dict:
+    keys = ("status", "progress", "message", "engine", "elapsed_seconds", "eta_seconds", "speed", "error")
+    return {key: job.get(key) for key in keys if key in job}
 
 
 def cleanup_job(job_id: str) -> None:
@@ -78,153 +79,116 @@ def cleanup_job(job_id: str) -> None:
         shutil.rmtree(job["workdir"], ignore_errors=True)
 
 
-def run_download_job(job_id: str, url: str) -> None:
-    if not download_slots.acquire(blocking=False):
-        update_job(job_id, status="error", message="O serviço está ocupado com outros downloads. Tente novamente em instantes.")
-        return
+def prune_jobs() -> None:
+    now = time.time()
+    with jobs_lock:
+        expired = [key for key, job in jobs.items()
+                   if job.get("status") in {"completed", "error"} and now - job.get("created_at", now) > JOB_TTL_SECONDS]
+    for key in expired:
+        cleanup_job(key)
 
-    workdir = tempfile.mkdtemp(prefix="manhwa-youtube-")
-    update_job(job_id, status="downloading", progress=0, message="Conectando ao YouTube...", workdir=workdir)
-    try:
-        def progress_hook(data):
-            if data.get("status") == "downloading":
-                total = data.get("total_bytes") or data.get("total_bytes_estimate")
-                downloaded = data.get("downloaded_bytes", 0)
-                percent = min(99, round(downloaded * 100 / total)) if total else 0
-                update_job(job_id, progress=percent, message="Baixando vídeo do YouTube: " + str(percent) + "%")
-            elif data.get("status") == "finished":
-                update_job(job_id, progress=99, message="Download concluído. Preparando MP4 com FFmpeg...")
 
-        options = {
-            "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best",
-            "merge_output_format": "mp4",
-            "outtmpl": str(Path(workdir) / "%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "restrictfilenames": True,
-            "windowsfilenames": True,
-            "overwrites": True,
-            "continuedl": False,
-            "retries": 2,
-            "fragment_retries": 2,
-            "socket_timeout": 30,
-            "max_filesize": MAX_FILE_BYTES,
-            "progress_hooks": [progress_hook],
-            "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
-        }
-        with yt_dlp.YoutubeDL(options) as downloader:
-            info = downloader.extract_info(url, download=False)
-            if not info or info.get("_type") == "playlist" or info.get("entries"):
-                raise ValueError("Cole o link de um único vídeo, não de uma playlist.")
-            if info.get("extractor_key", "").lower() not in {"youtube", "youtubeweb"}:
-                raise ValueError("O link não foi reconhecido como um vídeo do YouTube.")
-            downloader.download([url])
+def save_upload(upload: UploadFile, destination: Path) -> None:
+    total = 0
+    with destination.open("wb") as output:
+        while chunk := upload.file.read(8 * 1024 * 1024):
+            total += len(chunk)
+            if total > MAX_FILE_BYTES:
+                raise HTTPException(status_code=413, detail="Arquivo excede o limite configurado.")
+            output.write(chunk)
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Arquivo enviado vazio.")
 
-        candidates = [p for p in Path(workdir).iterdir() if p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}]
-        if not candidates:
-            raise ValueError("O YouTube não forneceu um arquivo que o FFmpeg consiga preparar.")
-        output = max(candidates, key=lambda p: p.stat().st_size)
-        if output.stat().st_size > MAX_FILE_BYTES:
-            raise ValueError("O arquivo excede o limite de 7 GB.")
-        if output.suffix.lower() != ".mp4":
-            raise ValueError("Não foi possível converter o download para MP4.")
-        update_job(job_id, status="completed", progress=100, message="Download pronto para processamento.", file_path=str(output), filename="youtube-video.mp4")
-    except yt_dlp.utils.DownloadError as exc:
-        shutil.rmtree(workdir, ignore_errors=True)
-        message = str(exc).lower()
-        if any(term in message for term in ("private video", "video unavailable", "members-only", "sign in")):
-            detail = "O YouTube não permitiu o acesso a este vídeo. Ele pode ser privado, removido, exigir login ou ter restrição de acesso."
-        else:
-            detail = "Não foi possível baixar este vídeo. Verifique o link e se o YouTube permite reproduzi-lo sem autenticação."
-        update_job(job_id, status="error", message=detail, workdir=None)
-    except ValueError as exc:
-        shutil.rmtree(workdir, ignore_errors=True)
-        update_job(job_id, status="error", message=str(exc), workdir=None)
-    except Exception:
-        shutil.rmtree(workdir, ignore_errors=True)
-        update_job(job_id, status="error", message="Falha inesperada no serviço de download.", workdir=None)
-    finally:
-        download_slots.release()
+
+def download_youtube(url: str, workdir: Path, job_id: str) -> str:
+    validate_youtube_url(url)
+    update_job(job_id, status="downloading", progress=0, message="Conectando ao YouTube...")
+    def hook(data):
+        if data.get("status") == "downloading":
+            total = data.get("total_bytes") or data.get("total_bytes_estimate")
+            received = data.get("downloaded_bytes", 0)
+            pct = min(99, int(received * 100 / total)) if total else 0
+            update_job(job_id, progress=pct, message=f"Baixando vídeo do YouTube: {pct}%")
+        elif data.get("status") == "finished":
+            update_job(job_id, progress=99, message="Download concluído; preparando arquivo...")
+    options = {
+        "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best",
+        "merge_output_format": "mp4",
+        "outtmpl": str(workdir / "%(id)s.%(ext)s"),
+        "noplaylist": True, "quiet": True, "no_warnings": True,
+        "restrictfilenames": True, "overwrites": True, "continuedl": True,
+        "retries": 3, "fragment_retries": 3, "socket_timeout": 45,
+        "max_filesize": MAX_FILE_BYTES, "progress_hooks": [hook],
+        "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
+    }
+    with yt_dlp.YoutubeDL(options) as downloader:
+        info = downloader.extract_info(url, download=False)
+        if not info or info.get("_type") == "playlist" or info.get("entries"):
+            raise ValueError("Cole o link de um único vídeo, não de uma playlist.")
+        if info.get("extractor_key", "").lower() not in {"youtube", "youtubeweb"}:
+            raise ValueError("O link não foi reconhecido como vídeo do YouTube.")
+        downloader.download([url])
+    files = [item for item in workdir.iterdir() if item.is_file() and item.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}]
+    if not files:
+        raise ValueError("O YouTube não forneceu um arquivo de vídeo utilizável.")
+    source = max(files, key=lambda item: item.stat().st_size)
+    if source.stat().st_size > MAX_FILE_BYTES:
+        raise ValueError("O vídeo excede o limite configurado.")
+    return str(source)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "manhwa-studio-youtube-downloader"}
-
-
-@app.post("/api/youtube/jobs", status_code=202)
-def create_download_job(payload: DownloadRequest, request: Request, background_tasks: BackgroundTasks):
-    url = str(payload.url)
-    validate_youtube_url(url)
-    check_rate_limit(request.client.host if request.client else "unknown")
-    now = time.time()
-    with jobs_lock:
-        expired = [job_id for job_id, job in jobs.items() if job["status"] in {"completed", "error"} and now - job["created_at"] > JOB_TTL_SECONDS]
-    for job_id in expired:
-        cleanup_job(job_id)
-    job_id = uuid.uuid4().hex
-    with jobs_lock:
-        jobs[job_id] = {"status": "queued", "progress": 0, "message": "Download na fila...", "created_at": now, "workdir": None, "file_path": None}
-    background_tasks.add_task(run_download_job, job_id, url)
-    return {"job_id": job_id, "status": "queued"}
-
-
-@app.get("/api/youtube/jobs/{job_id}")
-def get_download_job(job_id: str):
-    with jobs_lock:
-        job = jobs.get(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Download não encontrado ou expirado.")
-        return {"status": job["status"], "progress": job["progress"], "message": job["message"]}
-
-
-@app.get("/api/youtube/jobs/{job_id}/file")
-def get_downloaded_file(job_id: str):
-    with jobs_lock:
-        job = jobs.get(job_id)
-        if not job or job["status"] != "completed" or not job.get("file_path"):
-            raise HTTPException(status_code=409, detail="O vídeo ainda não está pronto para baixar.")
-        file_path = job["file_path"]
-        workdir = job["workdir"]
-    return FileResponse(
-        file_path,
-        media_type="video/mp4",
-        filename="youtube-video.mp4",
-        headers={"Cache-Control": "no-store"},
-        background=BackgroundTask(cleanup_job, job_id),
-    )
+    return {"status": "ok", "service": "manhwa-studio-gpu-renderer", "version": "2.0.0"}
 
 
 @app.get("/api/capabilities")
 def capabilities():
-    gpu = ""
+    gpu_name, gpu_memory, driver = "", "", ""
     try:
-        import subprocess
-        gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[0]
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+        parts = [part.strip() for part in result.stdout.strip().splitlines()[0].split(",")]
+        gpu_name = parts[0]
+        gpu_memory = parts[1] if len(parts) > 1 else ""
+        driver = parts[2] if len(parts) > 2 else ""
     except Exception:
         pass
-    return {"nvenc": nvenc_available(), "gpu": gpu, "cpus": os.cpu_count()}
+    return {
+        "gpu": gpu_name, "gpu_memory": gpu_memory, "driver": driver,
+        "nvenc_h264": nvenc_available("h264"), "nvenc_h265": nvenc_available("h265"),
+        "nvdec": nvdec_available(), "cpus": os.cpu_count() or 1,
+        "render_threads": int(os.getenv("RENDER_THREADS", os.cpu_count() or 1)),
+        "max_file_bytes": MAX_FILE_BYTES,
+    }
 
 
-def run_render_job(job_id: str, workdir: str, youtube_url: str | None, video_path: str | None, background_path: str, params: RenderParams) -> None:
+def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
+                   video_path: str | None, background_path: str, params: RenderParams) -> None:
+    directory = Path(workdir)
     try:
-        if youtube_url:
-            run_download_job(job_id, youtube_url)
-            with jobs_lock:
-                job = dict(jobs.get(job_id, {}))
-            if job.get("status") != "completed":
-                return
-            video_path = job["file_path"]
-            update_job(job_id, status="rendering", progress=0, workdir=workdir, extra_dir=job.get("workdir"))
-        with render_slots:
-            update_job(job_id, status="rendering", progress=0, message="Renderizando na GPU...")
-            output = str(Path(workdir) / "output.mp4")
-            engine = render(video_path, background_path, output, params,
-                            lambda pct: update_job(job_id, progress=pct, message="Renderizando: " + str(pct) + "%"))
-        update_job(job_id, status="completed", progress=100, message="Renderizado via " + engine, file_path=output, workdir=workdir)
+        if not render_slots.acquire(blocking=False):
+            raise RuntimeError("A GPU já está ocupada com outra renderização. Tente novamente.")
+        try:
+            if youtube_url:
+                video_path = download_youtube(youtube_url, directory, job_id)
+            if not video_path or not Path(video_path).is_file():
+                raise RuntimeError("Arquivo de vídeo não encontrado.")
+            update_job(job_id, status="rendering", progress=0, message="Renderizando vídeo com FFmpeg...")
+            output = str(directory / "manhwa-studio-output.mp4")
+            def progress(percent: int, stats: dict):
+                update_job(job_id, progress=percent, message=f"Renderizando: {percent}%",
+                           elapsed_seconds=stats.get("elapsed_seconds"),
+                           eta_seconds=stats.get("eta_seconds"), speed=stats.get("speed"))
+            engine = render(video_path, background_path, output, params, progress)
+            update_job(job_id, status="completed", progress=100, message="Renderização concluída.",
+                       engine=engine, file_path=output, filename="manhwa-studio.mp4")
+        finally:
+            render_slots.release()
     except Exception as exc:
-        update_job(job_id, status="error", message="Falha na renderização: " + str(exc)[:200])
+        update_job(job_id, status="error", progress=0, message=str(exc)[:500], error=str(exc)[:1000])
 
 
 @app.post("/api/render", status_code=202)
@@ -237,36 +201,69 @@ async def create_render_job(
     video: UploadFile | None = File(None),
 ):
     check_rate_limit(request.client.host if request.client else "unknown")
-    if not video and not youtube_url:
+    if not video and not youtube_url.strip():
         raise HTTPException(status_code=400, detail="Envie um vídeo ou um link do YouTube.")
     if youtube_url and not video:
         validate_youtube_url(youtube_url)
-    workdir = tempfile.mkdtemp(prefix="manhwa-render-")
-    bg_path = str(Path(workdir) / ("bg" + Path(background.filename or "bg.png").suffix))
-    with open(bg_path, "wb") as f:
-        shutil.copyfileobj(background.file, f, 16 * 1024 * 1024)
-    video_path = None
-    if video:
-        video_path = str(Path(workdir) / ("input" + (Path(video.filename or "v.mp4").suffix or ".mp4")))
-        with open(video_path, "wb") as f:
-            shutil.copyfileobj(video.file, f, 16 * 1024 * 1024)
-    job_id = uuid.uuid4().hex
+    try:
+        render_params = RenderParams.from_json(params)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    prune_jobs()
+    workdir = Path(tempfile.mkdtemp(prefix="manhwa-render-"))
+    try:
+        bg_suffix = Path(background.filename or "background.png").suffix.lower()
+        if bg_suffix not in {".png", ".jpg", ".jpeg"}:
+            raise HTTPException(status_code=400, detail="A moldura deve ser PNG ou JPEG.")
+        bg_path = workdir / ("background" + bg_suffix)
+        save_upload(background, bg_path)
+        video_path = None
+        if video:
+            suffix = Path(video.filename or "input.mp4").suffix.lower()
+            if suffix not in {".mp4", ".mkv", ".mov", ".webm", ".m4v"}:
+                raise HTTPException(status_code=400, detail="Formato de vídeo não suportado.")
+            video_path = workdir / ("input" + suffix)
+            save_upload(video, video_path)
+        job_id = uuid.uuid4().hex
+        with jobs_lock:
+            jobs[job_id] = {
+                "status": "queued", "progress": 0, "message": "Arquivos recebidos; aguardando renderização.",
+                "created_at": time.time(), "workdir": str(workdir), "file_path": None,
+            }
+        background_tasks.add_task(run_render_job, job_id, str(workdir),
+                                  None if video else youtube_url.strip(),
+                                  str(video_path) if video_path else None, str(bg_path), render_params)
+        return {"job_id": job_id, "status": "queued"}
+    except Exception:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+
+
+@app.get("/api/render/jobs/{job_id}")
+@app.get("/api/youtube/jobs/{job_id}")
+def get_render_job(job_id: str):
     with jobs_lock:
-        jobs[job_id] = {"status": "queued", "progress": 0, "message": "Na fila...", "created_at": time.time(), "workdir": workdir, "file_path": None}
-    background_tasks.add_task(run_render_job, job_id, workdir, None if video else youtube_url, video_path, bg_path, RenderParams.from_json(params))
-    return {"job_id": job_id}
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Trabalho não encontrado ou expirado.")
+        return public_job(job)
 
 
 @app.get("/api/render/{job_id}/file")
 def get_render_file(job_id: str):
     with jobs_lock:
         job = jobs.get(job_id)
-        if not job or job["status"] != "completed" or not job.get("file_path"):
-            raise HTTPException(status_code=409, detail="Ainda não está pronto.")
+        if not job or job.get("status") != "completed" or not job.get("file_path"):
+            raise HTTPException(status_code=409, detail="O vídeo ainda não está pronto.")
         file_path = job["file_path"]
-        extra = job.get("extra_dir")
-    def cleanup():
-        cleanup_job(job_id)
-        if extra:
-            shutil.rmtree(extra, ignore_errors=True)
-    return FileResponse(file_path, media_type="video/mp4", filename="manhwa-studio.mp4", headers={"Cache-Control": "no-store"}, background=BackgroundTask(cleanup))
+    return FileResponse(
+        file_path, media_type="video/mp4", filename="manhwa-studio.mp4",
+        headers={"Cache-Control": "no-store"},
+        background=BackgroundTask(cleanup_job, job_id),
+    )
+
+
+@app.post("/api/youtube/jobs", status_code=410)
+def legacy_youtube_download_disabled():
+    raise HTTPException(status_code=410, detail="Use /api/render enviando o link do YouTube e a moldura no mesmo trabalho.")
