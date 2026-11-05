@@ -4,82 +4,17 @@ import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck,
 
 export const Route = createFileRoute("/")({ component: Studio });
 
-type FfmpegInstance = {
-  load: () => Promise<void>;
-  FS: (operation: "writeFile" | "readFile" | "unlink", ...args: (string | Uint8Array)[]) => Uint8Array | void;
-  run: (...args: string[]) => Promise<void>;
-};
-
-declare global {
-  interface Window {
-    FFmpeg?: { createFFmpeg: (options: { log: boolean; corePath: string }) => FfmpegInstance };
-  }
-}
-
 type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; nvenc_h264: boolean; nvenc_h265: boolean; nvdec: boolean; cpus: number; render_threads: number };
 
-const RENDER_BACKEND_URL = "";
-
-async function detectGpuServer(overrideUrl?: string): Promise<GpuInfo | null> {
-  const base = (overrideUrl || RENDER_BACKEND_URL || window.location.origin).replace(/\/$/, "");
+async function detectGpuServer(): Promise<GpuInfo | null> {
+  const base = window.location.origin;
   try {
     const res = await fetch(base + "/api/capabilities", { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
-    return { base, ...((await res.json()) as Omit<GpuInfo, "base">) };
-  } catch { return null; }
-}
-let ffmpegLoader: Promise<FfmpegInstance> | null = null;
-
-async function getFfmpeg() {
-  if (!ffmpegLoader) {
-    ffmpegLoader = (async () => {
-      if (!window.FFmpeg) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js";
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error("Não foi possível baixar o módulo FFmpeg. Verifique sua conexão e tente novamente."));
-          document.head.appendChild(script);
-        });
-      }
-      if (!window.FFmpeg) throw new Error("O módulo FFmpeg não ficou disponível no navegador.");
-      const ffmpeg = window.FFmpeg.createFFmpeg({
-        log: false,
-        corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"
-      });
-      await ffmpeg.load();
-      return ffmpeg;
-    })().catch((error) => {
-      ffmpegLoader = null;
-      throw error;
-    });
+    return { base, ...(await res.json() as Omit<GpuInfo, "base">) };
+  } catch {
+    return null;
   }
-  return ffmpegLoader;
-}
-
-async function cleanContainerMetadata(source: Blob) {
-  const ffmpeg = await getFfmpeg();
-  const input = "manhwa-input.webm";
-  const output = "manhwa-clean.webm";
-  ffmpeg.FS("writeFile", input, new Uint8Array(await source.arrayBuffer()));
-  await ffmpeg.run(
-    "-i", input,
-    "-map", "0",
-    "-map_metadata", "-1",
-    "-map_chapters", "-1",
-    "-c", "copy",
-    "-fflags", "+bitexact",
-    "-metadata", "encoder=",
-    "-metadata", "title=",
-    "-metadata", "comment=",
-    "-metadata", "description=",
-    "-metadata", "creation_time=",
-    output
-  );
-  const result = ffmpeg.FS("readFile", output) as Uint8Array;
-  ffmpeg.FS("unlink", input);
-  ffmpeg.FS("unlink", output);
-  return new Blob([new Uint8Array(result)], { type: "video/webm" });
 }
 
 function Studio() {
@@ -104,7 +39,6 @@ function Studio() {
   const [videoOffsetY, setVideoOffsetY] = useState(0);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
-  const [renderApiUrl] = useState(RENDER_BACKEND_URL || window.location.origin);
   useEffect(() => {
     let cancelled = false;
     void detectGpuServer().then((info) => { if (!cancelled) { setGpuInfo(info); setGpuChecked(true); } });
@@ -476,7 +410,7 @@ function Studio() {
               {videoPreview ? <video src={videoPreview} muted playsInline/> : <><Upload/><strong>Selecionar vídeo</strong><small>MP4, MOV, MKV ou WebM</small></>}
             </button>
             <input ref={videoInput} type="file" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v" hidden onChange={(event) => selectVideo(event.target.files?.[0])}/>
-            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Vídeo selecionado: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Limpar vídeo baixado"><X size={15}/></button></div>}
+            {videoFile && <div className="oneclick-file"><Check size={15}/><span>Vídeo selecionado: {videoFile.name}</span><button onClick={() => { setVideoFile(null); setVideoPreview(""); setRenderedUrl(""); }} aria-label="Remover vídeo selecionado"><X size={15}/></button></div>}
           </div>
           <div className="oneclick-card">
             <div className="oneclick-card-title"><FileImage/><div><strong>2. Fundo / moldura</strong><small>PNG ou JPEG que ficará ao redor</small></div></div>
@@ -511,7 +445,7 @@ function Studio() {
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo do YouTube usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação são processadas pelo FFmpeg no servidor GPU usando CUDA/NVDEC/NVENC quando disponíveis. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> O vídeo e a moldura são enviados ao computador virtual pela mesma página. O FFmpeg faz a composição e a renderização usando a GPU quando disponível. O MP4 final é devolvido pelo site para visualização e download; metadados globais, de faixas e capítulos são removidos na exportação.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
