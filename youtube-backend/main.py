@@ -172,7 +172,7 @@ def capabilities():
         "nvdec": nvdec_available(),
         "cpus": os.cpu_count() or 1,
         "render_threads": int(os.getenv("RENDER_THREADS", os.cpu_count() or 1)),
-        "ram_total_gb": round(__import__("psutil").virtual_memory().total / (1024 ** 3), 1) if __import__("importlib").util.find_spec("psutil") else None,
+        "ram_total_gb": round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / (1024 ** 3), 1) if hasattr(os, "sysconf") else None,
         "disk_free_gb": round(shutil.disk_usage(tempfile.gettempdir()).free / (1024 ** 3), 1),
         "max_file_bytes": MAX_FILE_BYTES,
     }
