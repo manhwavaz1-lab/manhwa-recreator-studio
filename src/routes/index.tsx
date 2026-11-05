@@ -16,7 +16,19 @@ declare global {
   }
 }
 
-const GPU_SERVER_URL = "http://localhost:8000";
+type GpuInfo = { base: string; gpu: string; nvenc: boolean; cpus: number };
+
+async function detectGpuServer(): Promise<GpuInfo | null> {
+  const hosts = Array.from(new Set([window.location.hostname, "localhost", "127.0.0.1"]));
+  for (const host of hosts) {
+    const base = "http://" + host + ":8000";
+    try {
+      const res = await fetch(base + "/api/capabilities", { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return { base, ...((await res.json()) as Omit<GpuInfo, "base">) };
+    } catch { /* tenta o próximo */ }
+  }
+  return null;
+}
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
 const YOUTUBE_BACKEND_URL = ((import.meta.env["VITE_YOUTUBE_BACKEND_URL"] as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
 
@@ -94,7 +106,16 @@ function Studio() {
   const [cropToFill, setCropToFill] = useState(true);
   const [videoOffsetX, setVideoOffsetX] = useState(0);
   const [videoOffsetY, setVideoOffsetY] = useState(0);
-  const [renderMode, setRenderMode] = useState<"gpu" | "local">("gpu");
+  const [renderMode, setRenderMode] = useState<"gpu" | "local">("local");
+  const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
+  const [gpuChecked, setGpuChecked] = useState(false);
+  useEffect(() => {
+    void detectGpuServer().then((info) => {
+      setGpuInfo(info);
+      setGpuChecked(true);
+      if (info) setRenderMode("gpu");
+    });
+  }, []);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -109,7 +130,8 @@ function Studio() {
 
 
   async function createVideoOnGpu() {
-    const base = GPU_SERVER_URL;
+    if (!gpuInfo) { setError("Servidor GPU não detectado nesta máquina."); return; }
+    const base = gpuInfo.base;
     if (!backgroundFile || (!videoFile && !youtubeUrl)) { setError("Envie a moldura e um vídeo ou link do YouTube."); return; }
     setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
     try {
@@ -424,11 +446,12 @@ function Studio() {
           <div className="output-settings-grid" style={{ marginTop: 12 }}>
             <label>Motor de renderização
               <select value={renderMode} onChange={(event) => setRenderMode(event.target.value as "gpu" | "local")} disabled={busy}>
-                <option value="gpu">Servidor GPU (NVENC · muito mais rápido · MP4)</option>
+                <option value="gpu" disabled={!gpuInfo}>GPU {gpuInfo ? "· " + (gpuInfo.gpu || "detectada") : "· não detectada"}</option>
                 <option value="local">Navegador (tempo real · WebM)</option>
               </select>
             </label>
           </div>
+          <p className="output-dimensions">{!gpuChecked ? "Detectando GPU..." : gpuInfo ? "GPU detectada: " + (gpuInfo.gpu || "servidor local") + " · " + (gpuInfo.nvenc ? "NVENC ativo" : "sem NVENC, usando CPU") + " · " + gpuInfo.cpus + " núcleos" : "Nenhuma GPU detectada: usando o navegador."}</p>
           <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · {renderMode === "gpu" ? "MP4 H.264 · renderização na GPU" : "WebM · renderização local no navegador"}</p>
         </section>
         <section className="oneclick-grid">

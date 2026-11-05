@@ -198,7 +198,13 @@ def get_downloaded_file(job_id: str):
 
 @app.get("/api/capabilities")
 def capabilities():
-    return {"nvenc": nvenc_available(), "cpus": os.cpu_count()}
+    gpu = ""
+    try:
+        import subprocess
+        gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[0]
+    except Exception:
+        pass
+    return {"nvenc": nvenc_available(), "gpu": gpu, "cpus": os.cpu_count()}
 
 
 def run_render_job(job_id: str, workdir: str, youtube_url: str | None, video_path: str | None, background_path: str, params: RenderParams) -> None:
