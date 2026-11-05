@@ -22,6 +22,10 @@ ffmpeg -hide_banner -filters | grep -E 'scale_cuda|overlay_cuda' || true
 for enc in h264_nvenc hevc_nvenc; do
   if ffmpeg -hide_banner -f lavfi -i color=black:s=256x256:d=0.1 -frames:v 1 -c:v "$enc" -preset p1 -f null - >/dev/null 2>&1; then echo "$enc: operacional"; else echo "$enc: indisponível"; fi
 done
+if ! python3 -m venv --help >/dev/null 2>&1; then
+  apt-get update -y
+  apt-get install -y --no-install-recommends python3-venv python3-pip
+fi
 cd "$BACKEND_DIR"
 python3 -m venv .venv
 source .venv/bin/activate
