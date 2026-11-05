@@ -17,7 +17,7 @@ from gpu_render import RenderParams, list_nvidia_gpus, nvdec_available, nvenc_av
 from pydantic import BaseModel, HttpUrl
 from starlette.background import BackgroundTask
 
-app = FastAPI(title="Manhwa Studio GPU Renderer", version="2.0.0")
+app = FastAPI(title="Manhwa Studio GPU Renderer", version="3.0.0")
 origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "*").split(",") if item.strip()]
 app.add_middleware(
     CORSMiddleware,
