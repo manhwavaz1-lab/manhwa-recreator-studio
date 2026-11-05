@@ -18,7 +18,7 @@ declare global {
 
 type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; nvenc_h264: boolean; nvenc_h265: boolean; nvdec: boolean; cpus: number; render_threads: number };
 
-const RENDER_BACKEND_URL = ((import.meta.env["VITE_RENDER_API_URL"] as string | undefined) || "").replace(/\/$/, "");
+const RENDER_BACKEND_URL = "";
 
 async function detectGpuServer(overrideUrl?: string): Promise<GpuInfo | null> {
   const base = (overrideUrl || RENDER_BACKEND_URL || window.location.origin).replace(/\/$/, "");
@@ -106,17 +106,12 @@ function Studio() {
   const [renderMode, setRenderMode] = useState<"gpu" | "local">("gpu");
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [renderApiUrl, setRenderApiUrl] = useState(RENDER_BACKEND_URL || "");
+  const [renderApiUrl] = useState(RENDER_BACKEND_URL || window.location.origin);
   useEffect(() => {
-    if (!renderApiUrl.trim()) { setGpuInfo(null); setGpuChecked(true); return; }
-    setGpuChecked(false);
-    void detectGpuServer(renderApiUrl.trim()).then((info) => {
-      setGpuInfo(info);
-      setGpuChecked(true);
-      if (info) setRenderMode("gpu");
-    });
-  }, [renderApiUrl]);
+    let cancelled = false;
+    void detectGpuServer().then((info) => { if (!cancelled) { setGpuInfo(info); setGpuChecked(true); } });
+    return () => { cancelled = true; };
+  }, []);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -147,7 +142,7 @@ function Studio() {
       const jobId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", base + "/api/render");
-        if (apiKey.trim()) xhr.setRequestHeader("Authorization", "Bearer " + apiKey.trim());
+        
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.floor((e.loaded / e.total) * 20)); };
         xhr.onload = () => {
           try {
@@ -160,7 +155,7 @@ function Studio() {
       });
       for (;;) {
         await new Promise((r) => setTimeout(r, 1000));
-        const res = await fetch(base + "/api/render/jobs/" + jobId, { headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {} });
+        const res = await fetch(base + "/api/render/jobs/" + jobId, { headers: {} });
         if (!res.ok) throw new Error("Não foi possível consultar o andamento da renderização.");
         const job = (await res.json()) as { status: string; progress: number; message: string; engine?: string; elapsed_seconds?: number; eta_seconds?: number; speed?: string };
         setMessage(job.message + (job.speed ? " · " + job.speed : "") + (job.eta_seconds != null ? " · restam ~" + Math.ceil(job.eta_seconds / 60) + " min" : ""));
@@ -171,7 +166,7 @@ function Studio() {
           break;
         }
       }
-      const res = await fetch(base + "/api/render/" + jobId + "/file", { headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {} });
+      const res = await fetch(base + "/api/render/" + jobId + "/file", { headers: {} });
       if (!res.ok) throw new Error("Falha ao baixar o vídeo renderizado.");
       const blob = await res.blob();
       const outputUrl = createTrackedUrl(blob);
@@ -419,19 +414,13 @@ function Studio() {
     <div className="oneclick-shell">
       <header className="oneclick-header">
         <div className="oneclick-brand"><span className="oneclick-mark">M</span><div><strong>MANHWA STUDIO</strong><small>VIDEO FRAME CREATOR</small></div></div>
-        <span className="oneclick-status"><span/> DOWNLOAD + RENDERIZAÇÃO GPU</span>
+        <span className="oneclick-status"><span/> UPLOAD LOCAL + RENDERIZAÇÃO GPU AUTOMÁTICA</span>
       </header>
       <main className="oneclick-main">
-        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, renderiza diretamente na GPU e limpa os metadados descritivos.</p></div>
+        <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. Envie o vídeo e a imagem da borda. Um clique transfere os arquivos ao computador virtual, renderiza na GPU e devolve o MP4 pronto.</p></div>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
-          <div className="oneclick-card-title"><ShieldCheck/><div><strong>CONEXÃO COM O SERVIDOR VAST.AI</strong><small>Endereço público e chave de acesso informados no terminal da instância</small></div></div>
-          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>URL HTTPS do serviço HTTP da própria Vast.ai (porta pública 8000)
-            <input type="url" value={renderApiUrl} onChange={(event)=>setRenderApiUrl(event.target.value)} placeholder="Cole a URL HTTPS exibida em Connect para a porta 8000" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
-          </label>
-          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>Chave de acesso do servidor (API_KEY)
-            <input type="password" autoComplete="off" value={apiKey} onChange={(event)=>setApiKey(event.target.value)} placeholder="Cole aqui a chave exibida ao iniciar o servidor" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
-          </label>
-          <p className="output-dimensions">API detectada: {gpuInfo ? gpuInfo.base : "não conectada"} · {gpuInfo ? "Conexão respondendo" : "Cole a URL HTTPS da porta 8000 exibida em Connect na Vast.ai"}</p>
+          <div className="oneclick-card-title"><ShieldCheck/><div><strong>COMPUTADOR GPU CONECTADO</strong><small>Conexão automática. Sem endereço ou chave para preencher.</small></div></div>
+          <p className="output-dimensions">{!gpuChecked ? "Conectando automaticamente à GPU..." : gpuInfo ? "Conectado: " + (gpuInfo.gpu || "servidor GPU") + " · " + (gpuInfo.gpu_memory || "") + " · NVENC " + (gpuInfo.nvenc_h264 ? "pronto" : "indisponível") : "Servidor GPU indisponível. Abra o site pelo endereço da instância de computação."}</p>
         </section>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
@@ -453,7 +442,7 @@ function Studio() {
           </div>
           <div className="output-settings-grid" style={{ marginTop: 12 }}>
             <label>Motor de codificação
-              <select value={encoderMode} onChange={(event) => setEncoderMode(event.target.value as "auto" | "nvenc" | "cpu")} disabled={busy || renderMode !== "gpu"}>
+              <select value={encoderMode} onChange={(event) => setEncoderMode(event.target.value as "auto" | "nvenc" | "cpu")} disabled={busy}>
                 <option value="auto">Automático · GPU com fallback CPU</option>
                 <option value="nvenc" disabled={!gpuInfo?.nvenc_h264 && !gpuInfo?.nvenc_h265}>NVIDIA NVENC</option>
                 <option value="cpu">CPU</option>
@@ -480,7 +469,7 @@ function Studio() {
             </label>
           </div>
           <p className="output-dimensions">{!gpuChecked ? "Conectando ao servidor de renderização..." : gpuInfo ? "Servidor: " + (gpuInfo.gpu || "CPU") + (gpuInfo.gpu_memory ? " · " + gpuInfo.gpu_memory : "") + " · NVENC H.264 " + (gpuInfo.nvenc_h264 ? "disponível" : "indisponível") + " · NVENC H.265 " + (gpuInfo.nvenc_h265 ? "disponível" : "indisponível") + " · NVDEC " + (gpuInfo.nvdec ? "disponível" : "indisponível") + " · " + gpuInfo.cpus + " CPUs" : "Servidor de GPU não conectado. Configure VITE_RENDER_API_URL."}</p>
-          <p className="output-dimensions">Saída: {outputFormat} · {outputResolution} · {renderMode === "gpu" ? "MP4 " + outputCodec.toUpperCase() + " · FFmpeg remoto" : "WebM · navegador"}</p>
+          <p className="output-dimensions">Saída: {outputFormat} · {outputResolution} · {"MP4 " + outputCodec.toUpperCase() + " · GPU remota"}</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
@@ -528,7 +517,7 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação em {outputFormat} e {outputResolution}. A imagem de fundo aparece inteira, sem cortes.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: outputFormat === "16:9" ? "16 / 9" : "9 / 16", backgroundSize: "contain", backgroundColor: "#000"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
-        <button className="oneclick-create" onClick={() => void createVideoOnGpu()} disabled={busy || !backgroundFile || (!videoFile && !(renderMode === "gpu" && youtubeUrl))}>
+        <button className="oneclick-create" onClick={() => void createVideoOnGpu()} disabled={busy || !gpuInfo || !backgroundFile || (!videoFile && !youtubeUrl)}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
