@@ -13,7 +13,7 @@ import yt_dlp
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from gpu_render import RenderParams, nvdec_available, nvenc_available, render
+from gpu_render import RenderParams, list_nvidia_gpus, nvdec_available, nvenc_available, render
 from pydantic import BaseModel, HttpUrl
 from starlette.background import BackgroundTask
 
@@ -152,23 +152,28 @@ def health():
 
 @app.get("/api/capabilities")
 def capabilities():
-    gpu_name, gpu_memory, driver = "", "", ""
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=10, check=True,
-        )
-        parts = [part.strip() for part in result.stdout.strip().splitlines()[0].split(",")]
-        gpu_name = parts[0]
-        gpu_memory = parts[1] if len(parts) > 1 else ""
-        driver = parts[2] if len(parts) > 2 else ""
-    except Exception:
-        pass
+    gpus = list_nvidia_gpus()
+    first = gpus[0] if gpus else {}
     return {
-        "gpu": gpu_name, "gpu_memory": gpu_memory, "driver": driver,
-        "nvenc_h264": nvenc_available("h264"), "nvenc_h265": nvenc_available("h265"),
-        "nvdec": nvdec_available(), "cpus": os.cpu_count() or 1,
+        "gpu": (f"{len(gpus)}x " + first.get("name", "NVIDIA")) if gpus else "",
+        "gpu_memory": (f'{first.get("memory_total_mb", 0) / 1024:.1f} GB por GPU' if first else ""),
+        "driver": first.get("driver", ""),
+        "gpu_count": len(gpus),
+        "gpus": [
+            {
+                **gpu,
+                "nvenc_h264": nvenc_available("h264", gpu["index"]),
+                "nvenc_h265": nvenc_available("h265", gpu["index"]),
+            }
+            for gpu in gpus
+        ],
+        "nvenc_h264": any(nvenc_available("h264", gpu["index"]) for gpu in gpus),
+        "nvenc_h265": any(nvenc_available("h265", gpu["index"]) for gpu in gpus),
+        "nvdec": nvdec_available(),
+        "cpus": os.cpu_count() or 1,
         "render_threads": int(os.getenv("RENDER_THREADS", os.cpu_count() or 1)),
+        "ram_total_gb": round(__import__("psutil").virtual_memory().total / (1024 ** 3), 1) if __import__("importlib").util.find_spec("psutil") else None,
+        "disk_free_gb": round(shutil.disk_usage(tempfile.gettempdir()).free / (1024 ** 3), 1),
         "max_file_bytes": MAX_FILE_BYTES,
     }
 
