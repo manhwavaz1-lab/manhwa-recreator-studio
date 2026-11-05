@@ -240,7 +240,7 @@ def render(video: str, background: str, output: str, p: RenderParams,
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-nostats",
                "-progress", "pipe:1", "-filter_threads", threads, "-filter_complex_threads", threads]
         if use_nvdec:
-            cmd += ["-hwaccel", "cuda", "-hwaccel_device", str(selected_gpu or 0)]
+            cmd += ["-hwaccel", "cuda", "-hwaccel_device", str(selected_gpu or 0), "-hwaccel_output_format", "cuda"]
         active_graph = build_cuda_filter(p, vw, vh) if use_nvdec else graph
         cmd += ["-i", video, "-loop", "1", "-i", background, "-filter_complex", active_graph,
                 "-map", "[out]"]
