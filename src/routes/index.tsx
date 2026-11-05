@@ -461,7 +461,7 @@ function Studio() {
               </select>
             </label>
             <label>Perfil
-              <select value={qualityMode} onChange={(event) => setQualityMode(event.target.value as typeof qualityMode)} disabled={busy || renderMode !== "gpu"}>
+              <select value={qualityMode} onChange={(event) => setQualityMode(event.target.value as typeof qualityMode)} disabled={busy}>
                 <option value="speed">Velocidade máxima</option><option value="balanced">Equilibrado</option><option value="quality">Qualidade máxima</option>
               </select>
             </label>
