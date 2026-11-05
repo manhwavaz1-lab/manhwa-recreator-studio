@@ -4,7 +4,7 @@
 A captura de 05/11/2026 mostra RTX 5060 Ti (15,9 GB VRAM), 72 vCPUs, aproximadamente 257,8 GB de RAM, Ubuntu 24.04 com CUDA 12.9 e disco de 32 GB. O serviço detecta novamente os recursos no boot; não assume que NVENC/NVDEC estão disponíveis apenas pelo nome da GPU.
 
 ## 1. Abrir a porta e iniciar
-1. Na instância Vast.ai, abra a área **Ports** e confirme que a porta interna TCP **8000** está liberada. O script cria um túnel HTTPS Cloudflare temporário, portanto o navegador Lovable não precisa acessar diretamente o IP/porta HTTP.
+1. O serviço escuta internamente na porta TCP **8000**. Como o script cria um túnel HTTPS Cloudflare de saída, não é necessário publicar a porta 8000 na internet. Garanta que a instância tenha acesso de saída à internet.
 2. Abra o terminal/Jupyter da instância.
 3. Execute:
 
