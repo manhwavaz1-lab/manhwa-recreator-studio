@@ -9,7 +9,8 @@ from threading import BoundedSemaphore, Lock
 from urllib.parse import urlparse
 
 import yt_dlp
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from gpu_render import RenderParams, nvenc_available, render
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
@@ -23,18 +24,20 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
+    expose_headers=["Content-Disposition"],
     allow_headers=["Content-Type"],
 )
 
 MAX_FILE_BYTES = 7 * 1024 * 1024 * 1024
 RATE_WINDOW_SECONDS = 60 * 60
-RATE_LIMIT = 4
+RATE_LIMIT = int(os.getenv("RATE_LIMIT", "4"))
 JOB_TTL_SECONDS = 60 * 60
 requests_by_ip = defaultdict(deque)
 jobs = {}
 rate_lock = Lock()
 jobs_lock = Lock()
-download_slots = BoundedSemaphore(2)
+download_slots = BoundedSemaphore(int(os.getenv("DOWNLOAD_SLOTS", "2")))
+render_slots = BoundedSemaphore(int(os.getenv("RENDER_SLOTS", "3")))
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtube-nocookie.com"}
 
 
@@ -191,3 +194,73 @@ def get_downloaded_file(job_id: str):
         headers={"Cache-Control": "no-store"},
         background=BackgroundTask(cleanup_job, job_id),
     )
+
+
+@app.get("/api/capabilities")
+def capabilities():
+    return {"nvenc": nvenc_available(), "cpus": os.cpu_count()}
+
+
+def run_render_job(job_id: str, workdir: str, youtube_url: str | None, video_path: str | None, background_path: str, params: RenderParams) -> None:
+    try:
+        if youtube_url:
+            run_download_job(job_id, youtube_url)
+            with jobs_lock:
+                job = dict(jobs.get(job_id, {}))
+            if job.get("status") != "completed":
+                return
+            video_path = job["file_path"]
+            update_job(job_id, status="rendering", progress=0, workdir=workdir, extra_dir=job.get("workdir"))
+        with render_slots:
+            update_job(job_id, status="rendering", progress=0, message="Renderizando na GPU...")
+            output = str(Path(workdir) / "output.mp4")
+            engine = render(video_path, background_path, output, params,
+                            lambda pct: update_job(job_id, progress=pct, message="Renderizando: " + str(pct) + "%"))
+        update_job(job_id, status="completed", progress=100, message="Renderizado via " + engine, file_path=output, workdir=workdir)
+    except Exception as exc:
+        update_job(job_id, status="error", message="Falha na renderização: " + str(exc)[:200])
+
+
+@app.post("/api/render", status_code=202)
+async def create_render_job(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    background: UploadFile = File(...),
+    params: str = Form("{}"),
+    youtube_url: str = Form(""),
+    video: UploadFile | None = File(None),
+):
+    check_rate_limit(request.client.host if request.client else "unknown")
+    if not video and not youtube_url:
+        raise HTTPException(status_code=400, detail="Envie um vídeo ou um link do YouTube.")
+    if youtube_url and not video:
+        validate_youtube_url(youtube_url)
+    workdir = tempfile.mkdtemp(prefix="manhwa-render-")
+    bg_path = str(Path(workdir) / ("bg" + Path(background.filename or "bg.png").suffix))
+    with open(bg_path, "wb") as f:
+        shutil.copyfileobj(background.file, f, 16 * 1024 * 1024)
+    video_path = None
+    if video:
+        video_path = str(Path(workdir) / ("input" + (Path(video.filename or "v.mp4").suffix or ".mp4")))
+        with open(video_path, "wb") as f:
+            shutil.copyfileobj(video.file, f, 16 * 1024 * 1024)
+    job_id = uuid.uuid4().hex
+    with jobs_lock:
+        jobs[job_id] = {"status": "queued", "progress": 0, "message": "Na fila...", "created_at": time.time(), "workdir": workdir, "file_path": None}
+    background_tasks.add_task(run_render_job, job_id, workdir, None if video else youtube_url, video_path, bg_path, RenderParams.from_json(params))
+    return {"job_id": job_id}
+
+
+@app.get("/api/render/{job_id}/file")
+def get_render_file(job_id: str):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job or job["status"] != "completed" or not job.get("file_path"):
+            raise HTTPException(status_code=409, detail="Ainda não está pronto.")
+        file_path = job["file_path"]
+        extra = job.get("extra_dir")
+    def cleanup():
+        cleanup_job(job_id)
+        if extra:
+            shutil.rmtree(extra, ignore_errors=True)
+    return FileResponse(file_path, media_type="video/mp4", filename="manhwa-studio.mp4", headers={"Cache-Control": "no-store"}, background=BackgroundTask(cleanup))

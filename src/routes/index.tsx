@@ -93,6 +93,8 @@ function Studio() {
   const [cropToFill, setCropToFill] = useState(true);
   const [videoOffsetX, setVideoOffsetX] = useState(0);
   const [videoOffsetY, setVideoOffsetY] = useState(0);
+  const [renderMode, setRenderMode] = useState<"gpu" | "local">("gpu");
+  const [gpuUrl, setGpuUrl] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -103,6 +105,64 @@ function Studio() {
     const url = URL.createObjectURL(file);
     objectUrls.current.push(url);
     return url;
+  }
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("gpuServerUrl");
+    if (saved) setGpuUrl(saved);
+  }, []);
+
+  async function createVideoOnGpu() {
+    const base = gpuUrl.trim().replace(/\/$/, "");
+    if (!base) { setError("Informe o endereço do servidor GPU (ex.: http://195.189.61.56:8000)."); return; }
+    if (!backgroundFile || (!videoFile && !youtubeUrl)) { setError("Envie a moldura e um vídeo ou link do YouTube."); return; }
+    window.localStorage.setItem("gpuServerUrl", base);
+    setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
+    try {
+      const form = new FormData();
+      form.append("background", backgroundFile);
+      if (videoFile) form.append("video", videoFile); else form.append("youtube_url", youtubeUrl);
+      form.append("params", JSON.stringify({
+        output_format: outputFormat, resolution: outputResolution, crop_to_fill: cropToFill, zoom: videoZoom,
+        offset_x: videoOffsetX, offset_y: videoOffsetY, hide_watermark: hideWatermark,
+        mark_x: markX, mark_y: markY, mark_w: markW, mark_h: markH
+      }));
+      const jobId = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", base + "/api/render");
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.floor((e.loaded / e.total) * 20)); };
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText) as { job_id?: string; detail?: string };
+            if (xhr.status < 300 && data.job_id) resolve(data.job_id); else reject(new Error(data.detail || "Servidor recusou o pedido."));
+          } catch { reject(new Error("Resposta inválida do servidor GPU.")); }
+        };
+        xhr.onerror = () => reject(new Error("Não foi possível conectar ao servidor GPU. Verifique o endereço e a porta aberta na Vast.ai."));
+        xhr.send(form);
+      });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const res = await fetch(base + "/api/youtube/jobs/" + jobId);
+        const job = (await res.json()) as { status: string; progress: number; message: string };
+        setMessage(job.message);
+        if (job.status === "error") throw new Error(job.message);
+        setProgress(20 + Math.floor(job.progress * 0.79));
+        if (job.status === "completed" && job.message.startsWith("Renderizado")) break;
+      }
+      const res = await fetch(base + "/api/render/" + jobId + "/file");
+      if (!res.ok) throw new Error("Falha ao baixar o vídeo renderizado.");
+      const blob = await res.blob();
+      const outputUrl = createTrackedUrl(blob);
+      setRenderedUrl(outputUrl); setRenderedType("MP4 · H.264"); setProgress(100);
+      const link = document.createElement("a");
+      link.href = outputUrl;
+      link.download = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
+      document.body.appendChild(link); link.click(); link.remove();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha na renderização por GPU.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => () => {
@@ -367,7 +427,18 @@ function Studio() {
               </select>
             </label>
           </div>
-          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · "WebM · renderização local no navegador"</p>
+          <div className="output-settings-grid" style={{ marginTop: 12 }}>
+            <label>Motor de renderização
+              <select value={renderMode} onChange={(event) => setRenderMode(event.target.value as "gpu" | "local")} disabled={busy}>
+                <option value="gpu">Servidor GPU (NVENC · muito mais rápido · MP4)</option>
+                <option value="local">Navegador (tempo real · WebM)</option>
+              </select>
+            </label>
+            {renderMode === "gpu" && <label>Endereço do servidor GPU
+              <input value={gpuUrl} onChange={(event) => setGpuUrl(event.target.value)} disabled={busy} placeholder="http://195.189.61.56:8000"/>
+            </label>}
+          </div>
+          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · {renderMode === "gpu" ? "MP4 H.264 · renderização na GPU" : "WebM · renderização local no navegador"}</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
@@ -429,7 +500,7 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação em {outputFormat} e {outputResolution}. A imagem de fundo aparece inteira, sem cortes.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: outputFormat === "16:9" ? "16 / 9" : "9 / 16", backgroundSize: "contain", backgroundColor: "#000"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
-        <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
+        <button className="oneclick-create" onClick={() => void (renderMode === "gpu" ? createVideoOnGpu() : createVideo())} disabled={busy || !backgroundFile || (!videoFile && !(renderMode === "gpu" && youtubeUrl))}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
         {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
