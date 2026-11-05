@@ -26,7 +26,7 @@ fi
 
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
   apt-get update -y
-  apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 python3-venv python3-pip
+  apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 python3-venv python3-pip curl
 fi
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
   echo "ERRO: FFmpeg/ffprobe não estão disponíveis no PATH."
