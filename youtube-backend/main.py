@@ -17,7 +17,7 @@ from gpu_render import RenderParams, list_nvidia_gpus, nvdec_available, nvenc_av
 from pydantic import BaseModel, HttpUrl
 from starlette.background import BackgroundTask
 
-app = FastAPI(title="Manhwa Studio GPU Renderer", version="3.0.0")
+app = FastAPI(title="Manhwa Studio GPU Renderer", version="3.1.0")
 origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "*").split(",") if item.strip()]
 app.add_middleware(
     CORSMiddleware,
@@ -30,7 +30,7 @@ app.add_middleware(
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(7 * 1024 * 1024 * 1024)))
 RATE_WINDOW_SECONDS = 60 * 60
 RATE_LIMIT = int(os.getenv("RATE_LIMIT", "10"))
-API_KEY = os.getenv("API_KEY", "").strip()
+API_KEY = ""  # Single-origin private instance; no key is entered in the website UI.
 JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
 jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
@@ -147,7 +147,7 @@ def download_youtube(url: str, workdir: Path, job_id: str) -> str:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "manhwa-studio-gpu-renderer", "version": "2.0.0"}
+    return {"status": "ok", "service": "manhwa-studio-gpu-renderer", "version": "3.1.0"}
 
 
 @app.get("/api/capabilities")
