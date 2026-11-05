@@ -151,8 +151,7 @@ def health():
 
 
 @app.get("/api/capabilities")
-def capabilities(request: Request):
-    authorize(request)
+def capabilities():
     gpu_name, gpu_memory, driver = "", "", ""
     try:
         result = subprocess.run(
