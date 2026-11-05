@@ -42,7 +42,7 @@ python -m pip install -r requirements.txt
 
 echo "-- Preparando interface do site --"
 cd "$ROOT_DIR"
-npm ci
+npm install --no-audit --no-fund
 npm run build
 
 echo "-- Iniciando API GPU interna --"
