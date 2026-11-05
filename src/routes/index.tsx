@@ -20,8 +20,8 @@ type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; 
 
 const RENDER_BACKEND_URL = ((import.meta.env["VITE_RENDER_API_URL"] as string | undefined) || "").replace(/\/$/, "");
 
-async function detectGpuServer(): Promise<GpuInfo | null> {
-  const base = RENDER_BACKEND_URL || window.location.origin;
+async function detectGpuServer(overrideUrl?: string): Promise<GpuInfo | null> {
+  const base = (overrideUrl || RENDER_BACKEND_URL || window.location.origin).replace(/\/$/, "");
   try {
     const res = await fetch(base + "/api/capabilities", { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
@@ -112,13 +112,16 @@ function Studio() {
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [renderApiUrl, setRenderApiUrl] = useState(RENDER_BACKEND_URL || "");
   useEffect(() => {
-    void detectGpuServer().then((info) => {
+    if (!renderApiUrl.trim()) { setGpuInfo(null); setGpuChecked(true); return; }
+    setGpuChecked(false);
+    void detectGpuServer(renderApiUrl.trim()).then((info) => {
       setGpuInfo(info);
       setGpuChecked(true);
       if (info) setRenderMode("gpu");
     });
-  }, []);
+  }, [renderApiUrl]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -438,10 +441,13 @@ function Studio() {
         <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><ShieldCheck/><div><strong>CONEXÃO COM O SERVIDOR VAST.AI</strong><small>Endereço público e chave de acesso informados no terminal da instância</small></div></div>
+          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>URL HTTPS do servidor Vast.ai (Cloudflare Tunnel)
+            <input type="url" value={renderApiUrl} onChange={(event)=>setRenderApiUrl(event.target.value)} placeholder="https://seu-tunel.trycloudflare.com" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
+          </label>
           <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>Chave de acesso do servidor (API_KEY)
             <input type="password" autoComplete="off" value={apiKey} onChange={(event)=>setApiKey(event.target.value)} placeholder="Cole aqui a chave exibida ao iniciar o servidor" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
           </label>
-          <p className="output-dimensions">API detectada: {gpuInfo ? gpuInfo.base : "não conectada"} · {gpuInfo ? "Conexão respondendo" : "Configure VITE_RENDER_API_URL no Lovable"}</p>
+          <p className="output-dimensions">API detectada: {gpuInfo ? gpuInfo.base : "não conectada"} · {gpuInfo ? "Conexão respondendo" : "Cole a URL HTTPS do túnel e aguarde a detecção"}</p>
         </section>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
