@@ -24,7 +24,7 @@ else
   nvidia-smi
 fi
 
-if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! python3 -m venv --help >/dev/null 2>&1; then
   apt-get update -y
   apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 python3-venv python3-pip curl
 fi
