@@ -11,7 +11,7 @@ export RENDER_THREADS="${RENDER_THREADS:-$CPU_COUNT}"
 export RENDER_SLOTS="${RENDER_SLOTS:-1}"
 export RATE_LIMIT="${RATE_LIMIT:-10}"
 export API_KEY="${API_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')}"
-export MAX_FILE_BYTES="${MAX_FILE_BYTES:-7516192768}"
+export MAX_FILE_BYTES="${MAX_FILE_BYTES:-21474836480}"
 export PYTHONUNBUFFERED=1
 
 echo "== Manhwa Studio · Vast.ai =="
@@ -34,16 +34,27 @@ if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; 
 fi
 
 echo "-- Teste dos encoders NVIDIA --"
-if ffmpeg -hide_banner -f lavfi -i color=black:s=256x256:d=0.1 -frames:v 1 -c:v h264_nvenc -f null - >/tmp/manhwa-nvenc-test.log 2>&1; then
-  echo "NVENC H.264: operacional"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  GPU_COUNT="$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)"
+  echo "GPUs NVIDIA detectadas: $GPU_COUNT"
+  while IFS=, read -r GPU_INDEX GPU_NAME; do
+    GPU_INDEX="$(echo "$GPU_INDEX" | xargs)"
+    GPU_NAME="$(echo "$GPU_NAME" | xargs)"
+    echo "-- GPU $GPU_INDEX: $GPU_NAME --"
+    if ffmpeg -hide_banner -f lavfi -i color=black:s=256x256:d=0.1 -frames:v 1 -c:v h264_nvenc -gpu "$GPU_INDEX" -f null - >/tmp/manhwa-nvenc-"$GPU_INDEX".log 2>&1; then
+      echo "NVENC H.264 GPU $GPU_INDEX: operacional"
+    else
+      echo "NVENC H.264 GPU $GPU_INDEX: indisponível"
+      tail -n 5 /tmp/manhwa-nvenc-"$GPU_INDEX".log || true
+    fi
+    if ffmpeg -hide_banner -f lavfi -i color=black:s=256x256:d=0.1 -frames:v 1 -c:v hevc_nvenc -gpu "$GPU_INDEX" -f null - >/tmp/manhwa-hevc-"$GPU_INDEX".log 2>&1; then
+      echo "NVENC H.265 GPU $GPU_INDEX: operacional"
+    else
+      echo "NVENC H.265 GPU $GPU_INDEX: indisponível"
+    fi
+  done < <(nvidia-smi --query-gpu=index,name --format=csv,noheader)
 else
-  echo "NVENC H.264: indisponível; o renderizador tentará CPU no modo automático."
-  tail -n 8 /tmp/manhwa-nvenc-test.log || true
-fi
-if ffmpeg -hide_banner -f lavfi -i color=black:s=256x256:d=0.1 -frames:v 1 -c:v hevc_nvenc -f null - >/tmp/manhwa-hevc-test.log 2>&1; then
-  echo "NVENC H.265: operacional"
-else
-  echo "NVENC H.265: indisponível nesta combinação FFmpeg/driver/GPU."
+  echo "Nenhuma GPU NVIDIA visível; renderização CPU estará disponível."
 fi
 
 cd "$BACKEND_DIR"
@@ -56,10 +67,13 @@ python -m pip install -r requirements.txt
 echo "-- Capacidades detectadas pelo serviço --"
 python - <<'PY'
 import os
-from gpu_render import nvdec_available, nvenc_available
+from gpu_render import list_nvidia_gpus, nvdec_available, nvenc_available
 print("CPUs:", os.cpu_count())
-print("NVENC H.264:", nvenc_available("h264"))
-print("NVENC H.265:", nvenc_available("h265"))
+for gpu in list_nvidia_gpus():
+    idx = gpu["index"]
+    print(f'GPU {idx}: {gpu["name"]} | VRAM {gpu["memory_total_mb"]} MB')
+    print("  NVENC H.264:", nvenc_available("h264", idx))
+    print("  NVENC H.265:", nvenc_available("h265", idx))
 print("NVDEC:", nvdec_available())
 PY
 
