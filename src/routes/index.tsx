@@ -16,6 +16,7 @@ declare global {
   }
 }
 
+const GPU_SERVER_URL = "http://localhost:8000";
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
 const YOUTUBE_BACKEND_URL = ((import.meta.env["VITE_YOUTUBE_BACKEND_URL"] as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
 
@@ -94,7 +95,6 @@ function Studio() {
   const [videoOffsetX, setVideoOffsetX] = useState(0);
   const [videoOffsetY, setVideoOffsetY] = useState(0);
   const [renderMode, setRenderMode] = useState<"gpu" | "local">("gpu");
-  const [gpuUrl, setGpuUrl] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -107,16 +107,10 @@ function Studio() {
     return url;
   }
 
-  useEffect(() => {
-    const saved = window.localStorage.getItem("gpuServerUrl");
-    if (saved) setGpuUrl(saved);
-  }, []);
 
   async function createVideoOnGpu() {
-    const base = gpuUrl.trim().replace(/\/$/, "");
-    if (!base) { setError("Informe o endereço do servidor GPU (ex.: http://195.189.61.56:8000)."); return; }
+    const base = GPU_SERVER_URL;
     if (!backgroundFile || (!videoFile && !youtubeUrl)) { setError("Envie a moldura e um vídeo ou link do YouTube."); return; }
-    window.localStorage.setItem("gpuServerUrl", base);
     setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
     try {
       const form = new FormData();
@@ -137,7 +131,7 @@ function Studio() {
             if (xhr.status < 300 && data.job_id) resolve(data.job_id); else reject(new Error(data.detail || "Servidor recusou o pedido."));
           } catch { reject(new Error("Resposta inválida do servidor GPU.")); }
         };
-        xhr.onerror = () => reject(new Error("Não foi possível conectar ao servidor GPU. Verifique o endereço e a porta aberta na Vast.ai."));
+        xhr.onerror = () => reject(new Error("Não foi possível conectar ao servidor GPU. Confirme que o start_vastai.sh está rodando nesta máquina."));
         xhr.send(form);
       });
       for (;;) {
@@ -434,9 +428,6 @@ function Studio() {
                 <option value="local">Navegador (tempo real · WebM)</option>
               </select>
             </label>
-            {renderMode === "gpu" && <label>Endereço do servidor GPU
-              <input value={gpuUrl} onChange={(event) => setGpuUrl(event.target.value)} disabled={busy} placeholder="http://195.189.61.56:8000"/>
-            </label>}
           </div>
           <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · {renderMode === "gpu" ? "MP4 H.264 · renderização na GPU" : "WebM · renderização local no navegador"}</p>
         </section>
