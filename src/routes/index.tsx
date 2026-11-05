@@ -102,7 +102,6 @@ function Studio() {
   const [cropToFill, setCropToFill] = useState(true);
   const [videoOffsetX, setVideoOffsetX] = useState(0);
   const [videoOffsetY, setVideoOffsetY] = useState(0);
-  const [renderMode, setRenderMode] = useState<"gpu" | "local">("gpu");
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
   const [renderApiUrl] = useState(RENDER_BACKEND_URL || window.location.origin);
@@ -448,7 +447,7 @@ function Studio() {
               </select>
             </label>
             <label>Codec
-              <select value={outputCodec} onChange={(event) => setOutputCodec(event.target.value as "h264" | "h265")} disabled={busy || renderMode !== "gpu"}>
+              <select value={outputCodec} onChange={(event) => setOutputCodec(event.target.value as "h264" | "h265")} disabled={busy}>
                 <option value="h264">H.264 · maior compatibilidade</option>
                 <option value="h265">H.265 / HEVC · arquivo menor</option>
               </select>
