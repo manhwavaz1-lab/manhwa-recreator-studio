@@ -426,7 +426,7 @@ function Studio() {
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><ShieldCheck/><div><strong>CONEXÃO COM O SERVIDOR VAST.AI</strong><small>Endereço público e chave de acesso informados no terminal da instância</small></div></div>
           <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>URL HTTPS do serviço HTTP da própria Vast.ai (porta pública 8000)
-            <input type="url" value={renderApiUrl} onChange={(event)=>setRenderApiUrl(event.target.value)} placeholder="https://SUA-INSTANCIA-8000.proxy.vast.ai" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
+            <input type="url" value={renderApiUrl} onChange={(event)=>setRenderApiUrl(event.target.value)} placeholder="Cole a URL HTTPS exibida em Connect para a porta 8000" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
           </label>
           <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>Chave de acesso do servidor (API_KEY)
             <input type="password" autoComplete="off" value={apiKey} onChange={(event)=>setApiKey(event.target.value)} placeholder="Cole aqui a chave exibida ao iniciar o servidor" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
