@@ -111,6 +111,7 @@ function Studio() {
   const [renderMode, setRenderMode] = useState<"gpu" | "local">("local");
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
+  const [apiKey, setApiKey] = useState("");
   useEffect(() => {
     void detectGpuServer().then((info) => {
       setGpuInfo(info);
@@ -149,6 +150,7 @@ function Studio() {
       const jobId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", base + "/api/render");
+        if (apiKey.trim()) xhr.setRequestHeader("Authorization", "Bearer " + apiKey.trim());
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.floor((e.loaded / e.total) * 20)); };
         xhr.onload = () => {
           try {
@@ -161,7 +163,7 @@ function Studio() {
       });
       for (;;) {
         await new Promise((r) => setTimeout(r, 1000));
-        const res = await fetch(base + "/api/render/jobs/" + jobId);
+        const res = await fetch(base + "/api/render/jobs/" + jobId, { headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {} });
         if (!res.ok) throw new Error("Não foi possível consultar o andamento da renderização.");
         const job = (await res.json()) as { status: string; progress: number; message: string; engine?: string; elapsed_seconds?: number; eta_seconds?: number; speed?: string };
         setMessage(job.message + (job.speed ? " · " + job.speed : "") + (job.eta_seconds != null ? " · restam ~" + Math.ceil(job.eta_seconds / 60) + " min" : ""));
@@ -172,7 +174,7 @@ function Studio() {
           break;
         }
       }
-      const res = await fetch(base + "/api/render/" + jobId + "/file");
+      const res = await fetch(base + "/api/render/" + jobId + "/file", { headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {} });
       if (!res.ok) throw new Error("Falha ao baixar o vídeo renderizado.");
       const blob = await res.blob();
       const outputUrl = createTrackedUrl(blob);
@@ -434,6 +436,13 @@ function Studio() {
       </header>
       <main className="oneclick-main">
         <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
+        <section className="oneclick-card" style={{ marginTop: 18 }}>
+          <div className="oneclick-card-title"><ShieldCheck/><div><strong>CONEXÃO COM O SERVIDOR VAST.AI</strong><small>Endereço público e chave de acesso informados no terminal da instância</small></div></div>
+          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>Chave de acesso do servidor (API_KEY)
+            <input type="password" autoComplete="off" value={apiKey} onChange={(event)=>setApiKey(event.target.value)} placeholder="Cole aqui a chave exibida ao iniciar o servidor" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#f3f4f6"}}/>
+          </label>
+          <p className="output-dimensions">API detectada: {gpuInfo ? gpuInfo.base : "não conectada"} · {gpuInfo ? "Conexão respondendo" : "Configure VITE_RENDER_API_URL no Lovable"}</p>
+        </section>
         <section className="oneclick-card" style={{ marginTop: 18 }}>
           <div className="oneclick-card-title"><FileVideo/><div><strong>FORMATO E RESOLUÇÃO DE SAÍDA</strong><small>Escolha o enquadramento e a qualidade do arquivo final</small></div></div>
           <div className="output-settings-grid">
