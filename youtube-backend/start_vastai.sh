@@ -7,15 +7,17 @@ BACKEND_DIR="$ROOT_DIR/youtube-backend"
 SITE_PORT="${PORT:-8000}"
 API_PORT=8001
 CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
-export RENDER_THREADS="${RENDER_THREADS:-$CPU_COUNT}"
-export RENDER_SLOTS="${RENDER_SLOTS:-3}"
+export RENDER_THREADS="${RENDER_THREADS:-$(( CPU_COUNT < 16 ? CPU_COUNT : 16 ))}"
+export RENDER_SLOTS="${RENDER_SLOTS:-1}"
 export RATE_LIMIT="${RATE_LIMIT:-10}"
 export MAX_FILE_BYTES="${MAX_FILE_BYTES:-21474836480}"
 export PYTHONUNBUFFERED=1
 
-echo "== MANHWA STUDIO | SITE + GPU AUTOMÁTICA =="
+echo "== MANHWA STUDIO | RTX 5060 Ti / 16 GB =="
 echo "Site: HTTP $SITE_PORT | GPU API interna: 127.0.0.1:$API_PORT"
 echo "Upload local do navegador -> servidor Vast.ai -> FFmpeg/GPU -> download no mesmo site"
+echo "-- Perfil automático para uma GPU de 16 GB --"
+echo "Renderizações simultâneas: $RENDER_SLOTS | Threads FFmpeg: $RENDER_THREADS"
 echo "-- Verificando GPU NVIDIA --"
 nvidia-smi || { echo "ERRO: GPU/driver NVIDIA não visível."; exit 1; }
 echo "-- Verificando FFmpeg --"
