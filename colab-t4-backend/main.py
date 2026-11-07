@@ -30,7 +30,7 @@ def render(j,video,frame,cfg,folder):
             transform=f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
         else:
             transform=f"scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2"
-        base=f"[0:v]{transform},scale=trunc(iw*{z}/2)*2:trunc(ih*{z}/2)*2,crop={W}:{H}:x='(iw-{W})/2-{ox}':y='(ih-{H})/2-{oy}',setsar=1[base]"
+        base=f"[0:v]{transform},scale=trunc(iw*{z}/2)*2:trunc(ih*{z}/2)*2,crop={W}:{H}:x='max(0,min(iw-{W},(iw-{W})/2-{ox}))':y='max(0,min(ih-{H},(ih-{H})/2-{oy}))',setsar=1[base]"
         if cfg.get("hideWatermark"):
             x=min(even(W*max(0,min(99,float(cfg.get("markX",80))))/100),W-2)
             y=min(even(H*max(0,min(99,float(cfg.get("markY",85))))/100),H-2)
