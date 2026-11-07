@@ -7,9 +7,8 @@ BACKEND_DIR="$ROOT_DIR/youtube-backend"
 SITE_PORT="${PORT:-8000}"
 API_PORT=8001
 CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
-# Cap the default for high-vCPU hosts; NVENC does the video encoding on the GPU.
+# Use every CPU thread exposed by the Vast.ai instance unless explicitly overridden.
 DEFAULT_RENDER_THREADS="$CPU_COUNT"
-if [ "$DEFAULT_RENDER_THREADS" -gt 32 ]; then DEFAULT_RENDER_THREADS=32; fi
 export RENDER_THREADS="${RENDER_THREADS:-$DEFAULT_RENDER_THREADS}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$RENDER_THREADS}"
 export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$RENDER_THREADS}"
@@ -21,6 +20,7 @@ export PYTHONUNBUFFERED=1
 echo "== MANHWA STUDIO | SITE + GPU AUTOMÁTICA =="
 echo "Site: HTTP $SITE_PORT | GPU API interna: 127.0.0.1:$API_PORT"
 echo "Upload local do navegador -> servidor Vast.ai -> FFmpeg/GPU -> download no mesmo site"
+echo "CPU threads disponíveis: $CPU_COUNT | RENDER_THREADS: $RENDER_THREADS"
 echo "-- Verificando GPU NVIDIA --"
 nvidia-smi || { echo "ERRO: GPU/driver NVIDIA não visível."; exit 1; }
 echo "-- Verificando FFmpeg --"
