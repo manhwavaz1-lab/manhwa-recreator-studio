@@ -148,6 +148,8 @@ async function cleanContainerMetadata(source: Blob) {
 }
 
 function Studio() {
+  const [colabBackendUrl, setColabBackendUrl] = useState("");
+  const [colabToken, setColabToken] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
@@ -376,7 +378,43 @@ function Studio() {
     }
   }
 
+  async function renderOnColabT4() {
+    if (!videoFile || !backgroundFile) throw new Error("Selecione o vídeo e a moldura.");
+    if (!colabBackendUrl.trim()) throw new Error("Informe a URL do backend Colab.");
+    setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos para a GPU T4...");
+    const base=colabBackendUrl.trim().replace(/\/$/,"");
+    const headers: Record<string,string>={};
+    if(colabToken.trim()) headers["X-Render-Token"]=colabToken.trim();
+    try {
+      const health=await fetch(base+"/health",{headers});
+      if(!health.ok) throw new Error("Backend Colab indisponível. Verifique URL, token e sessão.");
+      const form=new FormData();
+      form.append("video",videoFile,videoFile.name); form.append("frame",backgroundFile,backgroundFile.name);
+      form.append("config",JSON.stringify({format:outputFormat,resolution:outputResolution,zoom:videoZoom,offsetX:videoOffsetX,offsetY:videoOffsetY,cropToFill,hideWatermark,markX,markY,markW,markH}));
+      const created=await fetch(base+"/api/render/jobs",{method:"POST",headers,body:form});
+      if(!created.ok) throw new Error((await created.text()).slice(0,1000)||"Falha no envio ao Colab.");
+      const {job_id}=await created.json(); const started=Date.now(); let job:any;
+      while(true){
+        await new Promise(resolve=>window.setTimeout(resolve,2500));
+        const response=await fetch(base+"/api/render/jobs/"+job_id,{headers});
+        if(!response.ok) throw new Error("Sessão Colab encerrada ou consulta de progresso falhou.");
+        job=await response.json(); setProgress(job.progress||0);
+        setMessage((job.message||"Renderizando na T4")+(job.gpu?" · "+job.gpu:""));
+        if(job.status==="error") throw new Error(job.message||"Falha na renderização.");
+        if(job.status==="completed") break;
+        if(Date.now()-started>6*60*60*1000) throw new Error("Tempo máximo de espera excedido.");
+      }
+      const file=await fetch(base+"/api/render/jobs/"+job_id+"/file",{headers});
+      if(!file.ok) throw new Error("MP4 pronto, mas o download falhou.");
+      const blob=await file.blob(); const url=createTrackedUrl(blob);
+      setRenderedUrl(url); setRenderedType("video/mp4"); setProgress(100); setRemainingSeconds(0);
+      const a=document.createElement("a"); a.href=url; a.download=(videoFile.name.replace(/\.[^.]+$/,"")||"video")+"-manhwa-studio.mp4"; a.click();
+      setMessage("MP4 renderizado no Colab · "+(job.gpu||"T4")+" · pronto para baixar.");
+    } finally { setBusy(false); }
+  }
+
   async function createVideo() {
+    if(colabBackendUrl.trim()){ try{ await renderOnColabT4(); }catch(err){setError(err instanceof Error?err.message:"Falha no motor Colab.");setBusy(false);} return; }
     if (!videoFile || !backgroundFile) {
       setError("Baixe o vídeo pelo YTDown, selecione o arquivo MP4 e envie a imagem PNG/JPEG.");
       return;
@@ -647,7 +685,7 @@ function Studio() {
     <div className="oneclick-shell">
       <header className="oneclick-header">
         <div className="oneclick-brand"><span className="oneclick-mark">M</span><div><strong>MANHWA STUDIO</strong><small>VIDEO FRAME CREATOR</small></div></div>
-        <span className="oneclick-status"><span/> DOWNLOAD + RENDERIZAÇÃO LOCAL</span>
+        <span className="oneclick-status"><span/> DOWNLOAD + GPU COLAB T4</span>
       </header>
       <main className="oneclick-main">
         <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
@@ -668,6 +706,16 @@ function Studio() {
             </label>
           </div>
           <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · "WebM · renderização local no navegador"</p>
+        </section>
+        <section className="oneclick-card" style={{ marginTop: 18 }}>
+          <div className="oneclick-card-title"><ShieldCheck/><div><strong>MOTOR DE RENDERIZAÇÃO GOOGLE COLAB T4</strong><small>Conecte a URL e o token exibidos pelo notebook</small></div></div>
+          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>URL do backend Colab
+            <input value={colabBackendUrl} onChange={(e)=>setColabBackendUrl(e.target.value)} placeholder="https://seu-tunel.trycloudflare.com" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#fff"}}/>
+          </label>
+          <label style={{display:"block",fontSize:11,color:"#aeb6c4",marginTop:10}}>Token da sessão Colab
+            <input value={colabToken} onChange={(e)=>setColabToken(e.target.value)} type="password" placeholder="Cole o token do notebook" disabled={busy} style={{width:"100%",marginTop:7,padding:12,borderRadius:8,border:"1px solid #414958",background:"#0b0d12",color:"#fff"}}/>
+          </label>
+          <p style={{fontSize:10,color:"#8e9aaa",marginTop:8}}>Com a URL preenchida, o botão principal envia vídeo, moldura e ajustes à T4. Deixe os campos vazios para usar o motor local atual.</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
@@ -750,7 +798,7 @@ function Studio() {
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo do YouTube usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação são processadas localmente no navegador. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> os arquivos de vídeo e moldura são enviados ao backend Colab configurado para composição com FFmpeg e NVENC quando disponível. Com a URL Colab configurada, a composição e a exportação são processadas no backend do Google Colab com NVENC quando disponível; sem URL, permanece disponível o motor local. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
