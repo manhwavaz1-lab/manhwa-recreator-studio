@@ -45,7 +45,7 @@ def render(j,video,frame,cfg,folder):
             gpu="NVIDIA T4 / NVENC"
         else:
             cmd+=["-c:v","libx264","-preset","veryfast","-crf","20"]; gpu="CPU fallback (NVENC indisponível)"
-        cmd+=["-shortest","-pix_fmt","yuv420p","-c:a","copy","-map_metadata","-1","-map_chapters","-1","-metadata","title=","-metadata","comment=","-metadata","creation_time=","-movflags","+faststart",out]
+        cmd+=["-pix_fmt","yuv420p","-c:a","aac","-b:a","192k","-map_metadata","-1","-map_chapters","-1","-metadata","title=","-metadata","comment=","-metadata","creation_time=","-movflags","+faststart",out]
         update(j,progress=8,gpu=gpu,message="Renderizando com "+gpu)
         proc=subprocess.Popen(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
         while proc.poll() is None:
