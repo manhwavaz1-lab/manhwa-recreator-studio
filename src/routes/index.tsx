@@ -5,6 +5,7 @@ import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck,
 export const Route = createFileRoute("/")({ component: Studio });
 
 type CoreUsage = { core: number; usage: number };
+type RenderSegment = { part: number; status: string; progress: number; start: number; duration: number };
 type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; nvenc_h264: boolean; nvenc_h265: boolean; nvdec: boolean; cpus: number; render_threads: number };
 
 async function detectGpuServer(): Promise<GpuInfo | null> {
@@ -41,6 +42,7 @@ function Studio() {
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
   const [coreUsage, setCoreUsage] = useState<CoreUsage[]>([]);
+  const [renderSegments, setRenderSegments] = useState<RenderSegment[]>([]);
   useEffect(() => {
     let cancelled = false;
     void detectGpuServer().then((info) => { if (!cancelled) { setGpuInfo(info); setGpuChecked(true); } });
@@ -79,7 +81,7 @@ function Studio() {
     if (!gpuInfo) { setError("Servidor GPU não detectado nesta máquina."); return; }
     const base = gpuInfo.base;
     if (!backgroundFile || !videoFile) { setError("Envie o vídeo e a imagem da borda."); return; }
-    setBusy(true); setProgress(0); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
+    setBusy(true); setProgress(0); setRenderSegments([]); setError(""); setMessage("Enviando arquivos ao servidor GPU...");
     try {
       const form = new FormData();
       form.append("background", backgroundFile);
@@ -107,7 +109,8 @@ function Studio() {
         await new Promise((r) => setTimeout(r, 1000));
         const res = await fetch(base + "/api/render/jobs/" + jobId, { headers: {} });
         if (!res.ok) throw new Error("Não foi possível consultar o andamento da renderização.");
-        const job = (await res.json()) as { status: string; progress: number; message: string; engine?: string; elapsed_seconds?: number; eta_seconds?: number; speed?: string };
+        const job = (await res.json()) as { status: string; progress: number; message: string; engine?: string; elapsed_seconds?: number; eta_seconds?: number; speed?: string; segments?: RenderSegment[] };
+        if (job.segments) setRenderSegments(job.segments);
         setMessage(job.message + (job.speed ? " · " + job.speed : "") + (job.eta_seconds != null ? " · restam ~" + Math.ceil(job.eta_seconds / 60) + " min" : ""));
         if (job.status === "error") throw new Error(job.message);
         setProgress(20 + Math.floor(job.progress * 0.79));
@@ -461,6 +464,17 @@ function Studio() {
         </button>
         {busy && <>
           <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>
+          {renderSegments.length > 0 && <section className="oneclick-card" style={{ marginTop: 14 }}>
+            <div className="oneclick-card-title"><FileVideo/><div><strong>RENDERIZAÇÃO PARALELA · {renderSegments.length} PARTES</strong><small>Segmentos processados simultaneamente na GPU</small></div></div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {renderSegments.map((segment) => <div key={segment.part} style={{ background: "#11151b", border: "1px solid #29313c", borderRadius: 8, padding: 10 }}>
+                <strong>PARTE {segment.part}</strong><div style={{ fontSize: 12, color: "#aab4c2", margin: "5px 0" }}>{Math.floor(segment.start / 60)}–{Math.ceil((segment.start + segment.duration) / 60)} min de vídeo</div>
+                <div style={{ height: 6, background: "#29313c", borderRadius: 8, overflow: "hidden" }}><div style={{ width: segment.progress + "%", height: "100%", background: "#22c55e", transition: "width .4s" }}/></div>
+                <small style={{ color: "#aab4c2" }}>{segment.status} · {segment.progress}%</small>
+              </div>)}
+            </div>
+          </section>}
+
           <section className="oneclick-card" style={{ marginTop: 14 }}>
             <div className="oneclick-card-title"><ShieldCheck/><div><strong>MONITOR DE CPU · TEMPO REAL</strong><small>{coreUsage.length} núcleos lógicos detectados · atualização a cada 1,5 s</small></div></div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(82px, 1fr))", gap: 8 }}>
