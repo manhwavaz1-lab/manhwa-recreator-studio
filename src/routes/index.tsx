@@ -466,7 +466,7 @@ function Studio() {
           <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>
           {renderSegments.length > 0 && <section className="oneclick-card" style={{ marginTop: 14 }}>
             <div className="oneclick-card-title"><FileVideo/><div><strong>RENDERIZAÇÃO PARALELA · {renderSegments.length} PARTES</strong><small>Segmentos processados simultaneamente na GPU</small></div></div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
               {renderSegments.map((segment) => <div key={segment.part} style={{ background: "#11151b", border: "1px solid #29313c", borderRadius: 8, padding: 10 }}>
                 <strong>PARTE {segment.part}</strong><div style={{ fontSize: 12, color: "#aab4c2", margin: "5px 0" }}>{Math.floor(segment.start / 60)}–{Math.ceil((segment.start + segment.duration) / 60)} min de vídeo</div>
                 <div style={{ height: 6, background: "#29313c", borderRadius: 8, overflow: "hidden" }}><div style={{ width: segment.progress + "%", height: "100%", background: "#22c55e", transition: "width .4s" }}/></div>
