@@ -219,7 +219,7 @@ def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0) -> list[s
         "quality": ("slow", "18"),
     }[p.quality]
     encoder = "libx265" if p.codec == "h265" else "libx264"
-    return ["-c:v", encoder, "-preset", preset, "-crf", crf, "-threads", str(max(1, int(os.getenv("RENDER_THREADS", os.cpu_count() or 8))))]
+    return ["-c:v", encoder, "-preset", preset, "-crf", crf, "-threads", str(max(1, int(os.getenv("RENDER_CPU_THREADS", "4"))))]
 
 
 def render(video: str, background: str, output: str, p: RenderParams,
