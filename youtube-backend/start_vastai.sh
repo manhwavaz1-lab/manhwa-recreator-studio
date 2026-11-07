@@ -48,7 +48,8 @@ python -m pip install -r requirements.txt
 echo "-- Preparando interface do site --"
 cd "$ROOT_DIR"
 npm install --no-audit --no-fund
-npm run build
+# Use Vite development server: TanStack preview currently expects dist/server/server.js,
+# which is absent in this deployment build. Dev mode serves the app without that artifact.
 
 echo "-- Iniciando API GPU interna --"
 (
@@ -75,7 +76,7 @@ else:
     raise SystemExit("A API GPU não iniciou. Consulte /tmp/manhwa-studio-gpu-api.log")
 PY
 
-echo "-- Abrindo o site completo em uma única porta --"
+echo "-- Abrindo o site pelo Vite em modo servidor --"
 echo "No painel Vast.ai, publique SOMENTE a porta HTTP $SITE_PORT."
 echo "Abra a URL HTTPS gerada pela Vast.ai. Não há URL de API nem chave para digitar."
-exec npm run preview -- --host 0.0.0.0 --port "$SITE_PORT" --strictPort
+exec npm run dev -- --host 0.0.0.0 --port "$SITE_PORT" --strictPort
