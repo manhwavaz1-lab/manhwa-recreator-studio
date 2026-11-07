@@ -10,8 +10,8 @@ CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
 # Use every CPU thread exposed by the Vast.ai instance unless explicitly overridden.
 DEFAULT_RENDER_THREADS="$CPU_COUNT"
 export RENDER_THREADS="${RENDER_THREADS:-$DEFAULT_RENDER_THREADS}"
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$RENDER_THREADS}"
-export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$RENDER_THREADS}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$RENDER_THREADS_PER_SEGMENT}"
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$RENDER_THREADS_PER_SEGMENT}"
 export RENDER_SLOTS="${RENDER_SLOTS:-1}"
 export PARALLEL_SEGMENTS="${PARALLEL_SEGMENTS:-9}"
 # FFmpeg filter threads are capped per worker to avoid 3x oversubscription on large Vast CPU allocations.
