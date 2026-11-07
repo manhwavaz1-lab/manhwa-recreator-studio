@@ -223,10 +223,14 @@ def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0) -> list[s
 
 
 def render(video: str, background: str, output: str, p: RenderParams,
-           on_progress: Callable[[int, dict], None]) -> str:
-    vw, vh, duration, has_audio, source_fps = probe(video)
+           on_progress: Callable[[int, dict], None],
+           start_seconds: float = 0.0, duration_seconds: float | None = None) -> str:
+    vw, vh, source_duration, has_audio, source_fps = probe(video)
+    duration = min(source_duration - start_seconds, duration_seconds) if duration_seconds is not None else source_duration
+    if start_seconds < 0 or duration <= 0 or start_seconds >= source_duration:
+        raise ValueError("Intervalo de segmento inválido.")
     graph = build_filter(p, vw, vh)
-    threads = str(max(1, int(os.getenv("RENDER_THREADS", os.cpu_count() or 8))))
+    threads = str(max(1, int(os.getenv("RENDER_FILTER_THREADS", "8"))))
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
     selected_gpu = select_nvenc_gpu(p.codec) if p.encoder in {"auto", "nvenc"} else None
@@ -242,7 +246,7 @@ def render(video: str, background: str, output: str, p: RenderParams,
         if use_nvdec:
             cmd += ["-hwaccel", "cuda", "-hwaccel_device", str(selected_gpu or 0), "-hwaccel_output_format", "cuda"]
         active_graph = build_cuda_filter(p, vw, vh) if use_nvdec else graph
-        cmd += ["-i", video, "-loop", "1", "-i", background, "-filter_complex", active_graph,
+        cmd += ["-ss", f"{start_seconds:.6f}", "-i", video, "-loop", "1", "-i", background, "-filter_complex", active_graph,
                 "-map", "[out]"]
         if has_audio:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
