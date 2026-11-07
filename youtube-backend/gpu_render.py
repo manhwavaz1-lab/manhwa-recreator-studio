@@ -34,7 +34,7 @@ class RenderParams:
     fps: str = "original"
     codec: str = "h264"
     encoder: str = "auto"
-    quality: str = "balanced"
+    quality: str = "speed"
 
     @classmethod
     def from_json(cls, raw: str) -> "RenderParams":
