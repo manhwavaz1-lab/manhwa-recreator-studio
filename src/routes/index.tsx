@@ -378,267 +378,97 @@ function Studio() {
 
   async function createVideo() {
     if (!videoFile || !backgroundFile) {
-      setError("Baixe o vídeo pelo YTDown, selecione o arquivo MP4 e envie a imagem PNG/JPEG.");
-      return;
-    }
-    if ("VideoEncoder" in window && "VideoDecoder" in window) {
-      const ok = await createVideoFast();
-      if (ok) return;
-    }
-    if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
-      setError("Seu navegador não oferece a gravação necessária. Use a versão atual do Chrome ou Edge.");
+      setError("Selecione o vídeo e a imagem PNG/JPEG da moldura.");
       return;
     }
 
     setBusy(true);
     setProgress(0);
-    renderStartedAt.current = null;
-    lastEstimateUpdate.current = 0;
-    setRemainingSeconds(videoDurationSeconds
-      ? videoDurationSeconds * (outputResolution === "4K" ? 1.8 : 1.15)
-      : null);
     setRenderSpeed(null);
+    setRemainingSeconds(null);
     setStorageWarning("");
     setError("");
-    setMessage("");
-    let sourceStream: MediaStream | null = null;
-    let canvasStream: MediaStream | null = null;
-    let videoUrl = "";
+    setMessage("Enviando os arquivos para a GPU NVIDIA da Vast.ai...");
+
     try {
-      const activeVideoFile = videoFile;
-      if (!activeVideoFile) throw new Error("Selecione o vídeo MP4 baixado pelo YTDown.");
-      videoUrl = createTrackedUrl(activeVideoFile);
-      setVideoPreview(videoUrl);
-      setMessage("Vídeo carregado. Iniciando composição e limpeza de metadados...");
-      const backgroundUrl = createTrackedUrl(backgroundFile);
-      const background = new Image();
-      background.src = backgroundUrl;
-      await new Promise<void>((resolve, reject) => {
-        background.onload = () => resolve();
-        background.onerror = () => reject(new Error("Não foi possível abrir a imagem de fundo."));
-      });
-
-      const video = document.createElement("video");
-      video.preload = "auto";
-      video.playsInline = true;
-      video.src = videoUrl;
-      await new Promise<void>((resolve, reject) => {
-        video.onloadeddata = () => resolve();
-        video.onerror = () => reject(new Error("O navegador não conseguiu decodificar este vídeo. Tente MP4 H.264 ou WebM."));
-      });
-      if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) {
-        throw new Error("O vídeo não possui duração ou dimensões válidas.");
-      }
-      setVideoDurationSeconds(video.duration);
-      setRemainingSeconds(video.duration * (outputResolution === "4K" ? 1.8 : 1.15));
-
-      // Formato e resolução escolhidos definem as dimensões exatas da exportação.
-      const isLandscape = outputFormat === "16:9";
-      const is4K = outputResolution === "4K";
-      const width = isLandscape ? (is4K ? 3840 : 1920) : (is4K ? 2160 : 1080);
-      const height = isLandscape ? (is4K ? 2160 : 1080) : (is4K ? 3840 : 1920);
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d", { alpha: false });
-      if (!ctx) throw new Error("Não foi possível iniciar o renderizador.");
-
-      const draw = () => {
-        // Mantém a imagem de fundo inteira; completa com preto sem cortar a moldura.
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, width, height);
-        const bgScale = Math.min(width / background.width, height / background.height);
-        const bgW = background.width * bgScale;
-        const bgH = background.height * bgScale;
-        ctx.drawImage(background, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH);
-
-        // Preenche a janela central da moldura; corta apenas o excedente
-        // nas bordas para evitar barras pretas e vídeo pequeno no centro.
-        const safeW = width * 0.84;
-        const safeH = height * 0.84;
-        const baseScale = cropToFill
-          ? Math.max(safeW / video.videoWidth, safeH / video.videoHeight)
-          : Math.min(safeW / video.videoWidth, safeH / video.videoHeight);
-        const videoScale = baseScale * (videoZoom / 100);
-        const videoW = video.videoWidth * videoScale;
-        const videoH = video.videoHeight * videoScale;
-        const x = (width - videoW) / 2 + (videoOffsetX / 100) * safeW * 0.5;
-        const y = (height - videoH) / 2 + (videoOffsetY / 100) * safeH * 0.5;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect((width - safeW) / 2, (height - safeH) / 2, safeW, safeH);
-        ctx.clip();
-        ctx.drawImage(video, x, y, videoW, videoH);
-        ctx.restore();
-
-        if (hideWatermark) {
-          const sx = (Math.max(0, Math.min(99, markX)) / 100) * video.videoWidth;
-          const sy = (Math.max(0, Math.min(99, markY)) / 100) * video.videoHeight;
-          const sw = (Math.max(1, Math.min(100 - markX, markW)) / 100) * video.videoWidth;
-          const sh = (Math.max(1, Math.min(100 - markY, markH)) / 100) * video.videoHeight;
-          ctx.save();
-          ctx.filter = "blur(14px)";
-          ctx.drawImage(video, sx, sy, sw, sh, x + sx * videoScale, y + sy * videoScale, sw * videoScale, sh * videoScale);
-          ctx.restore();
-        }
+      const capabilitiesResponse = await fetch("/api/capabilities");
+      if (!capabilitiesResponse.ok) throw new Error("Não foi possível verificar a GPU da Vast.ai.");
+      const capabilities = await capabilitiesResponse.json() as {
+        gpu?: string; nvenc_h264?: boolean; nvdec?: boolean;
       };
-
-      draw();
-      // Captura manual: cada quadro do canvas será enviado somente quando
-      // o vídeo de origem apresentar um novo quadro decodificado.
-      canvasStream = canvas.captureStream(0);
-      let canvasVideoTrack = canvasStream.getVideoTracks()[0] as (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
-      // Navegadores sem requestFrame usam a captura automática tradicional a 30 FPS.
-      if (!canvasVideoTrack?.requestFrame) {
-        canvasStream.getTracks().forEach((track) => track.stop());
-        canvasStream = canvas.captureStream(30);
-        canvasVideoTrack = canvasStream.getVideoTracks()[0] as (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
-      }
-      const requestCanvasFrame = () => canvasVideoTrack?.requestFrame?.();
-      requestCanvasFrame();
-
-      const capture = video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
-      const captureAudio = capture.captureStream || capture.mozCaptureStream;
-      if (captureAudio) {
-        sourceStream = captureAudio.call(video);
-        sourceStream.getAudioTracks().forEach((track) => canvasStream?.addTrack(track));
+      if (!capabilities.nvenc_h264) {
+        throw new Error("A GPU NVIDIA com NVENC não está disponível. O processamento local do navegador foi desativado; verifique o driver e o FFmpeg na Vast.ai.");
       }
 
-      const candidates = sourceStream?.getAudioTracks().length
-        ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus"]
-        : ["video/webm;codecs=vp9", "video/webm;codecs=vp8"];
-      const supportedCandidates = candidates.filter((type) => MediaRecorder.isTypeSupported(type));
-      if (!supportedCandidates.length) throw new Error("Este navegador não oferece um formato WebM compatível para exportação.");
-      let mimeType: string = supportedCandidates[0] ?? "video/webm";
-      if (navigator.mediaCapabilities?.encodingInfo) {
-        for (const candidate of supportedCandidates) {
-          const info = await navigator.mediaCapabilities.encodingInfo({
-            type: "record",
-            video: {
-              contentType: candidate.split(",")[0] ?? candidate,
-              width,
-              height,
-              bitrate: outputResolution === "4K" ? 35_000_000 : 12_000_000,
-              framerate: 30
-            }
-          }).catch(() => null);
-          if (info?.supported && info.smooth && info.powerEfficient) { mimeType = candidate; break; }
-          if (info?.supported && info.smooth) mimeType = candidate;
-        }
-      }
-      setMessage("Codec selecionado: " + (mimeType.includes("vp9") ? "VP9" : "VP8") + ". A aceleração por hardware, quando disponível, é gerenciada pelo navegador.");
+      const form = new FormData();
+      form.append("video", videoFile, videoFile.name);
+      form.append("background", backgroundFile, backgroundFile.name);
+      form.append("params", JSON.stringify({
+        output_format: outputFormat,
+        resolution: outputResolution,
+        crop_to_fill: cropToFill,
+        zoom: videoZoom,
+        offset_x: videoOffsetX,
+        offset_y: videoOffsetY,
+        fps: "original",
+        codec: "h264",
+        encoder: "nvenc",
+        quality: "speed"
+      }));
 
-      const recorder = new MediaRecorder(canvasStream, {
-        mimeType,
-        videoBitsPerSecond: outputResolution === "4K" ? 35_000_000 : 12_000_000,
-        ...(sourceStream?.getAudioTracks().length ? { audioBitsPerSecond: 192_000 } : {})
-      });
-      const sessionId = "render-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9);
-      const safeName = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.webm";
-      await saveRenderSession({ id: sessionId, createdAt: Date.now(), fileName: safeName, status: "running" });
-      let chunkSequence = 0;
-      let chunkWriteQueue = Promise.resolve();
-      let chunkStorageError: Error | null = null;
-      const finished = new Promise<void>((resolve, reject) => {
-        recorder.ondataavailable = (event) => {
-          if (!event.data.size || chunkStorageError) return;
-          const record = { id: sessionId + ":" + chunkSequence, sessionId, sequence: chunkSequence++, blob: event.data };
-          chunkWriteQueue = chunkWriteQueue.then(() => saveRenderChunk(record)).catch((err: unknown) => {
-            chunkStorageError = err instanceof Error ? err : new Error("Falha ao salvar bloco temporário.");
-            if (recorder.state !== "inactive") recorder.stop();
-          });
+      setMessage("Enviando vídeo para " + (capabilities.gpu || "GPU NVIDIA") + "...");
+      const createResponse = await fetch("/api/render", { method: "POST", body: form });
+      const createPayload = await createResponse.json().catch(() => ({})) as { job_id?: string; detail?: string };
+      if (!createResponse.ok || !createPayload.job_id) {
+        throw new Error(createPayload.detail || "A API GPU não aceitou o trabalho.");
+      }
+
+      const jobId = createPayload.job_id;
+      const startedAt = Date.now();
+      let finished = false;
+      while (!finished) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch("/api/render/jobs/" + encodeURIComponent(jobId), { cache: "no-store" });
+        const status = await statusResponse.json().catch(() => ({})) as {
+          status?: string; progress?: number; message?: string; engine?: string;
+          elapsed_seconds?: number; eta_seconds?: number; speed?: string; error?: string;
         };
-        recorder.onerror = () => reject(new Error("A gravação foi interrompida pelo navegador."));
-        recorder.onstop = () => resolve();
-      });
-
-      let raf = 0;
-      let videoFrameCallback = 0;
-      let lastProgress = 0;
-      const updateProgress = () => {
-        const nextProgress = 20 + Math.min(79, Math.floor((video.currentTime / video.duration) * 79));
-        if (nextProgress !== lastProgress) {
-          lastProgress = nextProgress;
-          setProgress(nextProgress);
+        if (!statusResponse.ok) throw new Error(status.error || status.message || "Não foi possível consultar o progresso do render.");
+        setProgress(Math.max(0, Math.min(99, status.progress || 0)));
+        setMessage(status.message || "Renderizando na GPU NVIDIA...");
+        if (typeof status.eta_seconds === "number") setRemainingSeconds(status.eta_seconds);
+        if (typeof status.elapsed_seconds === "number" && status.elapsed_seconds > 0) {
+          const elapsed = (Date.now() - startedAt) / 1000;
+          if (elapsed > 0) setRenderSpeed((videoDurationSeconds || 0) / elapsed);
         }
-        const now = Date.now();
-        if (!renderStartedAt.current) renderStartedAt.current = now;
-        if (now - lastEstimateUpdate.current >= 1000 && video.currentTime > 0.5) {
-          const elapsedSeconds = (now - renderStartedAt.current) / 1000;
-          const mediaSecondsPerWallSecond = video.currentTime / elapsedSeconds;
-          if (mediaSecondsPerWallSecond > 0) {
-            setRenderSpeed(mediaSecondsPerWallSecond);
-            setRemainingSeconds((video.duration - video.currentTime) / mediaSecondsPerWallSecond);
-          }
-          lastEstimateUpdate.current = now;
-        }
-      };
-      const videoWithFrameCallback = video as HTMLVideoElement & {
-        requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime: number }) => void) => number;
-        cancelVideoFrameCallback?: (handle: number) => void;
-      };
-      const paintFromDecodedFrame = () => {
-        if (video.ended || video.paused) return;
-        draw();
-        requestCanvasFrame();
-        updateProgress();
-        if (videoWithFrameCallback.requestVideoFrameCallback) {
-          videoFrameCallback = videoWithFrameCallback.requestVideoFrameCallback(paintFromDecodedFrame);
-        }
-      };
-      const paintFallback = () => {
-        if (video.ended || video.paused) return;
-        draw();
-        requestCanvasFrame();
-        updateProgress();
-        raf = requestAnimationFrame(paintFallback);
-      };
-      const stopPainting = () => {
-        cancelAnimationFrame(raf);
-        if (videoFrameCallback && videoWithFrameCallback.cancelVideoFrameCallback) {
-          videoWithFrameCallback.cancelVideoFrameCallback(videoFrameCallback);
-        }
-      };
-
-      // Fragmentos periódicos vão para o IndexedDB, não ficam acumulados em RAM.
-      recorder.start(5000);
-      video.onended = () => { stopPainting(); if (recorder.state !== "inactive") recorder.stop(); };
-      await video.play();
-      if (videoWithFrameCallback.requestVideoFrameCallback) {
-        videoFrameCallback = videoWithFrameCallback.requestVideoFrameCallback(paintFromDecodedFrame);
-      } else {
-        paintFallback();
+        if (status.status === "error") throw new Error(status.error || status.message || "Falha na renderização GPU.");
+        finished = status.status === "completed";
       }
-      await finished;
-      stopPainting();
-      await chunkWriteQueue;
-      if (chunkStorageError) {
-        setStorageWarning("O armazenamento local falhou. A gravação foi interrompida para evitar continuar sem cópia de segurança.");
-        throw chunkStorageError;
+
+      setMessage("Renderização concluída na GPU. Baixando o MP4...");
+      const fileResponse = await fetch("/api/render/" + encodeURIComponent(jobId) + "/file");
+      if (!fileResponse.ok) {
+        const payload = await fileResponse.json().catch(() => ({})) as { detail?: string };
+        throw new Error(payload.detail || "Não foi possível baixar o vídeo renderizado.");
       }
-      const storedChunks = await loadRenderChunks(sessionId);
-      const blob = new Blob(storedChunks, { type: recorder.mimeType });
-      if (!blob.size) throw new Error("O arquivo exportado ficou vazio. Tente novamente.");
-      await saveRenderSession({ id: sessionId, createdAt: Date.now(), fileName: safeName, status: "complete" });
+      const blob = await fileResponse.blob();
+      if (!blob.size) throw new Error("O backend retornou um arquivo vazio.");
       const outputUrl = createTrackedUrl(blob);
       setRenderedUrl(outputUrl);
-      setRenderedType(blob.type);
+      setRenderedType("video/mp4");
       setProgress(100);
       setRemainingSeconds(0);
-
+      const safeName = ((videoFile.name || "video").replace(/\\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-manhwa-studio.mp4";
       const link = document.createElement("a");
       link.href = outputUrl;
       link.download = safeName;
       document.body.appendChild(link);
       link.click();
       link.remove();
-      await deleteRenderSession(sessionId);
-      setMessage("Vídeo WebM criado. Os blocos temporários foram removidos do armazenamento local.");
+      setMessage("MP4 concluído com " + (capabilities.gpu || "GPU NVIDIA") + " usando FFmpeg/NVENC. Motor: " + "NVENC.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível criar o vídeo.");
+      setError(err instanceof Error ? err.message : "Não foi possível concluir a renderização GPU.");
     } finally {
-      sourceStream?.getTracks().forEach((track) => track.stop());
-      canvasStream?.getTracks().forEach((track) => track.stop());
       setBusy(false);
     }
   }
@@ -647,7 +477,7 @@ function Studio() {
     <div className="oneclick-shell">
       <header className="oneclick-header">
         <div className="oneclick-brand"><span className="oneclick-mark">M</span><div><strong>MANHWA STUDIO</strong><small>VIDEO FRAME CREATOR</small></div></div>
-        <span className="oneclick-status"><span/> DOWNLOAD + RENDERIZAÇÃO LOCAL</span>
+        <span className="oneclick-status"><span/> GPU NVIDIA · VAST.AI</span>
       </header>
       <main className="oneclick-main">
         <div className="oneclick-intro"><span className="oneclick-eyebrow">EDIÇÃO AUTOMÁTICA · UM CLIQUE</span><h1>Seu vídeo, com <em>sua moldura.</em></h1><p>Cole o link de qualquer vídeo do YouTube que esteja acessível e envie uma imagem PNG/JPEG. O sistema baixa o vídeo no backend, aplica a moldura, permite desfocar sua própria marca-d’água e limpa os metadados descritivos.</p></div>
@@ -667,7 +497,7 @@ function Studio() {
               </select>
             </label>
           </div>
-          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · "WebM · renderização local no navegador"</p>
+          <p className="output-dimensions">Saída: {outputFormat === "16:9" ? (outputResolution === "4K" ? "3840 × 2160" : "1920 × 1080") : (outputResolution === "4K" ? "2160 × 3840" : "1080 × 1920")} px · "MP4 · renderização na GPU NVIDIA da Vast.ai"</p>
         </section>
         <section className="oneclick-grid">
           <div className="oneclick-card">
@@ -732,7 +562,7 @@ function Studio() {
         {videoFile && videoDurationSeconds !== null && !busy && (
           <div className="oneclick-alert success" style={{ marginTop: 14 }}>
             <FileVideo size={17}/>
-            <span>Tempo estimado de renderização: <strong>{formatMinutes(videoDurationSeconds * (outputResolution === "4K" ? 1.8 : 1.15))}</strong>. Estimativa inicial; varia conforme o computador e o navegador.</span>
+            <span>Vídeo pronto para envio à GPU NVIDIA da Vast.ai. Até 2 renderizações simultâneas na instância.</span>
           </div>
         )}
         <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
@@ -749,8 +579,8 @@ function Studio() {
         {storageWarning && <div className="oneclick-alert error"><ShieldCheck size={17}/>{storageWarning}</div>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
-        {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
-        <div className="oneclick-notes"><ShieldCheck/><p><strong>Privacidade e processamento:</strong> o link é enviado ao backend configurado, que baixa o vídeo do YouTube usando yt-dlp e FFmpeg e devolve o arquivo ao navegador. A composição e a exportação são processadas localmente no navegador. A exportação cria um novo arquivo. Após a composição, o FFmpeg remove metadados descritivos do contêiner (título, comentário, descrição, data e capítulos) sem recodificar novamente áudio ou vídeo. Informações técnicas estruturais necessárias à reprodução, como codec, duração e dimensões, continuam existindo. O módulo FFmpeg é carregado sob demanda de um CDN; os arquivos de mídia permanecem no navegador.</p></div>
+        {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>MP4 · FFmpeg/NVENC na GPU</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + "-manhwa-studio.mp4"}><Download size={16}/> Baixar novamente</a></section>}
+        <div className="oneclick-notes"><ShieldCheck/><p><strong>Processamento GPU:</strong> os arquivos são enviados à instância Vast.ai. A composição e a codificação MP4 são feitas no servidor com FFmpeg/NVENC pela GPU NVIDIA; o navegador serve apenas como interface, prévia e download. A instância aceita até 2 renderizações simultâneas; trabalhos adicionais aguardam vaga. Os arquivos temporários são removidos após o download ou expiração do trabalho.</p></div>
       </main>
       <footer className="oneclick-footer">MANHWA STUDIO <span>·</span> FUNDO PERSONALIZADO <span>·</span> EXPORTAÇÃO AUTOMÁTICA</footer>
     </div>
