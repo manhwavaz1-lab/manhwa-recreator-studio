@@ -161,7 +161,7 @@ def system_cores():
     with open("/proc/stat", "r", encoding="utf-8") as stats:
         for line in stats:
             parts = line.split()
-            if not parts or not re.fullmatch(r"cpu\\d+", parts[0]):
+            if not parts or not re.fullmatch(r"cpu\d+", parts[0]):
                 continue
             values = [int(value) for value in parts[1:]]
             idle = values[3] + (values[4] if len(values) > 4 else 0)
