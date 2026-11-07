@@ -68,16 +68,6 @@ async function loadRenderChunks(sessionId: string): Promise<Blob[]> {
   return records.sort((a, b) => a.sequence - b.sequence).map((record) => record.blob);
 }
 
-async function getInterruptedRenderSessions(): Promise<RenderSessionRecord[]> {
-  const db = await openRenderStore();
-  const sessions = await new Promise<RenderSessionRecord[]>((resolve, reject) => {
-    const request = db.transaction("sessions", "readonly").objectStore("sessions").getAll();
-    request.onsuccess = () => resolve((request.result as RenderSessionRecord[]).filter((item) => item.status === "running"));
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
-  return sessions;
-}
 
 async function deleteRenderSession(sessionId: string) {
   const db = await openRenderStore();
@@ -173,7 +163,7 @@ function Studio() {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [renderSpeed, setRenderSpeed] = useState<number | null>(null);
   const [storageWarning, setStorageWarning] = useState("");
-  const [interruptedSessions, setInterruptedSessions] = useState<RenderSessionRecord[]>([]);
+
   const [busy, setBusy] = useState(false);
   const renderStartedAt = useRef<number | null>(null);
   const lastEstimateUpdate = useRef(0);
@@ -198,34 +188,11 @@ function Studio() {
     return url;
   }
 
-  useEffect(() => {
-    void getInterruptedRenderSessions().then(setInterruptedSessions).catch(() => {
-      setStorageWarning("O navegador não permitiu consultar as sessões salvas para recuperação.");
-    });
-  }, []);
 
   useEffect(() => () => {
     objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
     objectUrls.current = [];
   }, []);
-
-  async function recoverInterruptedSession(session: RenderSessionRecord) {
-    try {
-      const chunks = await loadRenderChunks(session.id);
-      if (!chunks.length) throw new Error("Não há blocos salvos para recuperar.");
-      const recovered = new Blob(chunks, { type: "video/webm" });
-      const url = createTrackedUrl(recovered);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = session.fileName.replace(/\.webm$/i, "") + "-recuperacao-parcial.webm";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setMessage("Blocos recuperados. Como a gravação foi interrompida antes do fechamento normal do WebM, o arquivo pode estar incompleto ou não abrir em alguns players.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível recuperar os blocos salvos.");
-    }
-  }
 
   function selectVideo(file?: File) {
     if (!file) return;
@@ -780,14 +747,6 @@ function Studio() {
           </p>
         </>}
         {storageWarning && <div className="oneclick-alert error"><ShieldCheck size={17}/>{storageWarning}</div>}
-        {interruptedSessions.length > 0 && <section className="oneclick-card" style={{ marginTop: 14 }}>
-          <strong>RECUPERAÇÃO DE RENDERIZAÇÃO INTERROMPIDA</strong>
-          <p style={{ color: "#aeb6c4", fontSize: 12 }}>Encontramos blocos temporários de uma renderização anterior. É possível tentar salvar o trecho recuperável, mas o WebM pode estar incompleto se o navegador fechou antes de finalizar o arquivo.</p>
-          {interruptedSessions.map((session) => <div key={session.id} className="oneclick-file">
-            <span>{session.fileName} · {new Date(session.createdAt).toLocaleString("pt-BR")}</span>
-            <button type="button" onClick={() => void recoverInterruptedSession(session)}>Tentar recuperar</button>
-          </div>)}
-        </section>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
