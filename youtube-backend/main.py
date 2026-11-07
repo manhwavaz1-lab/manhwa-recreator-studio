@@ -35,7 +35,7 @@ JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
 jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
 rate_lock, jobs_lock = Lock(), Lock()
-render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", "1"))))
+render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", "2"))))
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtube-nocookie.com"}
 
 
@@ -182,8 +182,8 @@ def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
                    video_path: str | None, background_path: str, params: RenderParams) -> None:
     directory = Path(workdir)
     try:
-        # Uma RTX 5060 Ti com 16 GB: serializa os trabalhos para evitar OOM.
-        # Novos trabalhos permanecem em fila até a GPU ficar livre.
+        # RTX 5060 Ti 16 GB: permite dois trabalhos simultâneos; os demais aguardam.
+        # O semáforo limita apenas a concorrência, não a quantidade de trabalhos na fila.
         render_slots.acquire()
         try:
             if youtube_url:
