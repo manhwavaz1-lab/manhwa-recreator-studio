@@ -8,7 +8,7 @@ SITE_PORT="${PORT:-8000}"
 API_PORT=8001
 CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
 export RENDER_THREADS="${RENDER_THREADS:-$CPU_COUNT}"
-export RENDER_SLOTS="${RENDER_SLOTS:-3}"
+export RENDER_SLOTS="${RENDER_SLOTS:-1}"
 export RATE_LIMIT="${RATE_LIMIT:-10}"
 export MAX_FILE_BYTES="${MAX_FILE_BYTES:-21474836480}"
 export PYTHONUNBUFFERED=1
@@ -42,7 +42,7 @@ python -m pip install -r requirements.txt
 
 echo "-- Preparando interface do site --"
 cd "$ROOT_DIR"
-npm install --no-audit --no-fund
+npm ci
 npm run build
 
 echo "-- Iniciando API GPU interna --"
@@ -73,4 +73,4 @@ PY
 echo "-- Abrindo o site completo em uma única porta --"
 echo "No painel Vast.ai, publique SOMENTE a porta HTTP $SITE_PORT."
 echo "Abra a URL HTTPS gerada pela Vast.ai. Não há URL de API nem chave para digitar."
-exec npm run dev -- --host 0.0.0.0 --port "$SITE_PORT" --strictPort
+exec npm run preview -- --host 0.0.0.0 --port "$SITE_PORT" --strictPort
