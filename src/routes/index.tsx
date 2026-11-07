@@ -320,6 +320,17 @@ function Studio() {
       const input = new mb.Input({ source: new mb.BlobSource(videoFile), formats: mb.ALL_FORMATS });
       const duration = await input.computeDuration();
       setVideoDurationSeconds(duration);
+      // Este notebook tem i7 móvel de 2 núcleos/4 threads e 16 GB de RAM.
+      // Vídeos longos precisam obrigatoriamente sair em fluxo para o SSD.
+      if (!saveHandle && duration > 20 * 60) {
+        setError("Para vídeos acima de 20 minutos, abra este projeto no Chrome ou Edge atualizado e escolha um destino no SSD. Este notebook tem 16 GB de RAM; montar um MP4 longo na memória pode travar o navegador.");
+        return true;
+      }
+      const cpuThreads = navigator.hardwareConcurrency || 4;
+      const lowPowerNotebook = cpuThreads <= 4;
+      const videoBitrate = is4K
+        ? (lowPowerNotebook ? 18_000_000 : 22_000_000)
+        : (lowPowerNotebook ? 7_500_000 : 8_500_000);
       // StreamTarget grava no SSD em blocos e evita manter o MP4 completo na RAM.
       const bufferTarget = saveHandle ? null : new mb.BufferTarget();
       const target = saveHandle
@@ -339,8 +350,8 @@ function Studio() {
         tags: {},
         video: {
           codec: "avc",
-          // Bitrate moderado para reduzir tamanho e pressão de codificação neste processador móvel de 2 núcleos.
-          bitrate: is4K ? 22_000_000 : 8_500_000,
+          // Perfil adaptativo: 7,5 Mbps em 1080p e 18 Mbps em 4K para CPUs móveis de 4 threads.
+          bitrate: videoBitrate,
           hardwareAcceleration: "prefer-hardware",
           processedWidth: width,
           processedHeight: height,
@@ -398,7 +409,7 @@ function Studio() {
       if (saveHandle) {
         setRenderedUrl("");
         setRenderedType("video/mp4");
-        setMessage(`MP4 salvo diretamente no SSD em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s). A saída não precisou ficar inteira na memória.`);
+        setMessage(`MP4 salvo diretamente no SSD em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s). Perfil ${lowPowerNotebook ? "notebook econômico (4 threads)" : "multithread"} · ${(videoBitrate / 1_000_000).toFixed(1)} Mbps · sem acumular o arquivo inteiro na RAM.`);
       } else {
         if (!bufferTarget?.buffer) throw new Error("O arquivo exportado ficou vazio.");
         const blob = new Blob([bufferTarget.buffer], { type: "video/mp4" });
