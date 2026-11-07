@@ -380,7 +380,7 @@ function Studio() {
         },
         audio: { codec: "aac", bitrate: 128_000 }
       });
-      if (!conversion.isValid) return false;
+      if (!conversion.isValid) throw new Error("O navegador não encontrou uma combinação compatível de codecs para esta exportação.");
 
       const startedAt = Date.now();
       conversion.onProgress = (p, processedTime) => {
@@ -398,7 +398,7 @@ function Studio() {
       if (saveHandle) {
         setRenderedUrl("");
         setRenderedType("video/mp4");
-        setMessage(\`MP4 salvo diretamente no SSD em modo acelerado (\${((Date.now() - startedAt) / 1000).toFixed(0)}s). A saída não precisou ficar inteira na memória.\`);
+        setMessage(`MP4 salvo diretamente no SSD em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s). A saída não precisou ficar inteira na memória.`);
       } else {
         if (!bufferTarget?.buffer) throw new Error("O arquivo exportado ficou vazio.");
         const blob = new Blob([bufferTarget.buffer], { type: "video/mp4" });
@@ -411,10 +411,16 @@ function Studio() {
         document.body.appendChild(link);
         link.click();
         link.remove();
-        setMessage(\`MP4 criado em modo acelerado (\${((Date.now() - startedAt) / 1000).toFixed(0)}s). Para vídeos longos, prefira Chrome/Edge com gravação direta no SSD.\`);
+        setMessage(`MP4 criado em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s). Para vídeos longos, prefira Chrome/Edge com gravação direta no SSD.`);
       }
       return true;
     } catch (err) {
+      const detail = err instanceof Error ? err.message : "Erro desconhecido durante a renderização.";
+      if (saveHandle) {
+        // Evita iniciar um segundo render em tempo real depois que o usuário escolheu um arquivo no SSD.
+        setError("A exportação acelerada falhou: " + detail + " Tente novamente em Chrome/Edge atualizado com saída 1080p.");
+        return true;
+      }
       console.warn("WebCodecs falhou, usando modo tempo real", err);
       setMessage("Modo acelerado indisponível para este arquivo. Usando modo tempo real...");
       return false;
