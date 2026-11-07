@@ -8,6 +8,7 @@ import uuid
 from collections import defaultdict, deque
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import yt_dlp
@@ -36,7 +37,8 @@ JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
 jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
 rate_lock, jobs_lock = Lock(), Lock()
-render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", "1"))))
+PARALLEL_SEGMENTS = max(1, min(3, int(os.getenv("PARALLEL_SEGMENTS", "3"))))
+render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", str(PARALLEL_SEGMENTS)))))
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtube-nocookie.com"}
 
 
@@ -77,7 +79,7 @@ def update_job(job_id: str, **values) -> None:
 
 
 def public_job(job: dict) -> dict:
-    keys = ("status", "progress", "message", "engine", "elapsed_seconds", "eta_seconds", "speed", "error")
+    keys = ("status", "progress", "message", "engine", "elapsed_seconds", "eta_seconds", "speed", "error", "segments")
     return {key: job.get(key) for key in keys if key in job}
 
 
@@ -216,27 +218,105 @@ def capabilities():
 def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
                    video_path: str | None, background_path: str, params: RenderParams) -> None:
     directory = Path(workdir)
+    acquired = False
     try:
         if not render_slots.acquire(blocking=False):
             raise RuntimeError("A GPU já está ocupada com outra renderização. Tente novamente.")
-        try:
-            if youtube_url:
-                video_path = download_youtube(youtube_url, directory, job_id)
-            if not video_path or not Path(video_path).is_file():
-                raise RuntimeError("Arquivo de vídeo não encontrado.")
-            update_job(job_id, status="rendering", progress=0, message="Renderizando vídeo com FFmpeg...")
-            output = str(directory / "manhwa-studio-output.mp4")
+        acquired = True
+        if youtube_url:
+            video_path = download_youtube(youtube_url, directory, job_id)
+        if not video_path or not Path(video_path).is_file():
+            raise RuntimeError("Arquivo de vídeo não encontrado.")
+
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, check=True,
+        )
+        total_duration = float(probe.stdout.strip())
+        segment_count = min(PARALLEL_SEGMENTS, max(1, int(total_duration // 1) + 1))
+        segment_duration = total_duration / segment_count
+        segments = [
+            {"part": index + 1, "status": "queued", "progress": 0,
+             "start": round(index * segment_duration, 3),
+             "duration": round((total_duration - index * segment_duration) if index == segment_count - 1 else segment_duration, 3)}
+            for index in range(segment_count)
+        ]
+        update_job(job_id, status="rendering", progress=0,
+                   message=f"Renderizando {segment_count} partes simultaneamente...",
+                   segments=segments)
+        progress_lock = Lock()
+        completed_progress = [0.0] * segment_count
+        engines = []
+
+        def render_part(index: int):
+            item = segments[index]
+            output = str(directory / f"segment-{index + 1:02d}.mp4")
+            update_job(job_id, segments=[
+                {**segment, "status": "renderizando" if segment["part"] == index + 1 else segment["status"]}
+                for segment in segments
+            ])
             def progress(percent: int, stats: dict):
-                update_job(job_id, progress=percent, message=f"Renderizando: {percent}%",
-                           elapsed_seconds=stats.get("elapsed_seconds"),
-                           eta_seconds=stats.get("eta_seconds"), speed=stats.get("speed"))
-            engine = render(video_path, background_path, output, params, progress)
-            update_job(job_id, status="completed", progress=100, message="Renderização concluída.",
-                       engine=engine, file_path=output, filename="manhwa-studio.mp4")
-        finally:
-            render_slots.release()
+                with progress_lock:
+                    completed_progress[index] = percent
+                    aggregate = int(sum(completed_progress) / segment_count)
+                    snapshot = [
+                        {**segments[i], "progress": int(completed_progress[i]),
+                         "status": "concluído" if completed_progress[i] >= 99 else
+                                   ("renderizando" if i == index else segments[i]["status"])}
+                        for i in range(segment_count)
+                    ]
+                    update_job(job_id, progress=aggregate,
+                               message=f"Renderizando parte {index + 1}/{segment_count}: {percent}%",
+                               elapsed_seconds=stats.get("elapsed_seconds"),
+                               eta_seconds=stats.get("eta_seconds"), speed=stats.get("speed"),
+                               segments=snapshot)
+            engine = render(video_path, background_path, output, params, progress,
+                            start_seconds=item["start"], duration_seconds=item["duration"])
+            with progress_lock:
+                completed_progress[index] = 100
+                engines.append(engine)
+                snapshot = [
+                    {**segments[i], "progress": int(completed_progress[i]),
+                     "status": "concluído" if completed_progress[i] >= 100 else segments[i]["status"]}
+                    for i in range(segment_count)
+                ]
+                update_job(job_id, progress=int(sum(completed_progress) / segment_count),
+                           message=f"Parte {index + 1}/{segment_count} concluída.",
+                           segments=snapshot)
+            return output
+
+        outputs = [None] * segment_count
+        with ThreadPoolExecutor(max_workers=segment_count, thread_name_prefix="gpu-segment") as pool:
+            futures = {pool.submit(render_part, index): index for index in range(segment_count)}
+            for future in as_completed(futures):
+                outputs[futures[future]] = future.result()
+
+        concat_file = directory / "segments.txt"
+        with concat_file.open("w", encoding="utf-8") as handle:
+            for segment_path in outputs:
+                escaped = str(segment_path).replace("'", "'\\''")
+                handle.write(f"file '{escaped}'\\n")
+        final_output = directory / "manhwa-studio-output.mp4"
+        update_job(job_id, message="Unindo as três partes sem recodificar...")
+        concat = subprocess.run(
+            ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat",
+             "-safe", "0", "-i", str(concat_file), "-c", "copy",
+             "-movflags", "+faststart", "-map_metadata", "-1", str(final_output)],
+            capture_output=True, text=True,
+        )
+        if concat.returncode != 0:
+            raise RuntimeError("Falha ao unir segmentos: " + (concat.stderr[-1200:] or "FFmpeg concat falhou."))
+        update_job(job_id, status="completed", progress=100,
+                   message=f"Renderização concluída: {segment_count} partes paralelas unidas.",
+                   engine=" + ".join(sorted(set(engines))), file_path=str(final_output),
+                   filename="manhwa-studio.mp4",
+                   segments=[{**item, "status": "concluído", "progress": 100} for item in segments])
     except Exception as exc:
         update_job(job_id, status="error", progress=0, message=str(exc)[:500], error=str(exc)[:1000])
+    finally:
+        if acquired:
+            render_slots.release()
 
 
 @app.post("/api/render", status_code=202)
