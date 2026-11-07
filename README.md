@@ -19,9 +19,9 @@ Requisitos da imagem da instância: GPU NVIDIA com drivers funcionais, FFmpeg in
 Na instância, clone este repositório e inicie o serviço uma vez:
 
 ```bash
-git clone -b vast-direct-gpu-render https://github.com/manhwavaz1-lab/manhwa-recreator-studio.git
+git clone https://github.com/manhwavaz1-lab/manhwa-recreator-studio.git
 cd manhwa-recreator-studio
-bash youtube-backend/start_vastai.sh
+bash start_vastai.sh
 ```
 
 O script instala as dependências Python e Node, compila a interface, inicia a API GPU em `127.0.0.1:8001` e publica o site na porta HTTP `8000`. No painel da Vast.ai, exponha somente a porta HTTP 8000 e abra a URL HTTPS que a própria Vast.ai apresentar em Connect.
@@ -47,7 +47,7 @@ Esta configuração foi pensada para uma instância privada de uso pessoal. A AP
 ## Desenvolvimento local
 
 ```bash
-npm ci
+npm install
 npm run dev
 ```
 
@@ -63,7 +63,7 @@ O perfil recomendado para instâncias como RTX 5060 Ti 16 GB VRAM, AMD EPYC e 64
 Na instância Vast.ai, execute na pasta `/workspace`:
 
 ```bash
-git clone -b rebuild-vastai-rtx5060ti https://github.com/manhwavaz1-lab/manhwa-recreator-studio.git
+git clone https://github.com/manhwavaz1-lab/manhwa-recreator-studio.git
 cd manhwa-recreator-studio
 bash start_vastai.sh
 ```
@@ -73,8 +73,8 @@ Se o repositório já estiver clonado:
 ```bash
 cd /workspace/manhwa-recreator-studio
 git fetch origin
-git switch rebuild-vastai-rtx5060ti
-git pull --ff-only origin rebuild-vastai-rtx5060ti
+git switch main
+git pull --ff-only origin main
 bash start_vastai.sh
 ```
 
