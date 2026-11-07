@@ -28,9 +28,9 @@ class RenderParams:
     output_format: str = "16:9"
     resolution: str = "1080p"
     crop_to_fill: bool = True
-    zoom: float = 100
+    zoom: float = 93
     offset_x: float = 0
-    offset_y: float = 0
+    offset_y: float = 7
     fps: str = "original"
     codec: str = "h264"
     encoder: str = "auto"
