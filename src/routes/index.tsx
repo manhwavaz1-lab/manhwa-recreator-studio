@@ -172,10 +172,10 @@ function Studio() {
   const [markY, setMarkY] = useState(85);
   const [markW, setMarkW] = useState(15);
   const [markH, setMarkH] = useState(8);
-  const [videoZoom, setVideoZoom] = useState(100);
+  const [videoZoom, setVideoZoom] = useState(93);
   const [cropToFill, setCropToFill] = useState(true);
   const [videoOffsetX, setVideoOffsetX] = useState(0);
-  const [videoOffsetY, setVideoOffsetY] = useState(0);
+  const [videoOffsetY, setVideoOffsetY] = useState(7);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -722,7 +722,7 @@ function Studio() {
             <label>Zoom do recorte <strong>{videoZoom}%</strong><input aria-label="Zoom do recorte" type="range" min="50" max="250" step="1" value={videoZoom} disabled={busy} onChange={(event) => setVideoZoom(Number(event.target.value))}/></label>
             <label>Posição horizontal <strong>{videoOffsetX > 0 ? "+" : ""}{videoOffsetX}</strong><input aria-label="Posição horizontal do vídeo" type="range" min="-50" max="50" step="1" value={videoOffsetX} disabled={busy} onChange={(event) => setVideoOffsetX(Number(event.target.value))}/></label>
             <label>Posição vertical <strong>{videoOffsetY > 0 ? "+" : ""}{videoOffsetY}</strong><input aria-label="Posição vertical do vídeo" type="range" min="-50" max="50" step="1" value={videoOffsetY} disabled={busy} onChange={(event) => setVideoOffsetY(Number(event.target.value))}/></label>
-            <button type="button" className="outline-button" disabled={busy} onClick={() => { setVideoZoom(100); setVideoOffsetX(0); setVideoOffsetY(0); setCropToFill(true); }}>REDEFINIR</button>
+            <button type="button" className="outline-button" disabled={busy} onClick={() => { setVideoZoom(93); setVideoOffsetX(0); setVideoOffsetY(7); setCropToFill(true); }}>REDEFINIR</button>
           </div>
         </section>
         <section className="oneclick-preview">
