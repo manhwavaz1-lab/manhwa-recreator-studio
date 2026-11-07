@@ -24,7 +24,7 @@ cd manhwa-recreator-studio
 bash start_vastai.sh
 ```
 
-O script instala as dependências Python e Node, compila a interface, inicia a API GPU em `127.0.0.1:8001` e publica o site na porta HTTP `8000`. No painel da Vast.ai, exponha somente a porta HTTP 8000 e abra a URL HTTPS que a própria Vast.ai apresentar em Connect.
+O script instala as dependências Python e Node, instala as dependências, inicia a API GPU em `127.0.0.1:8001` e publica o site pelo Vite na porta HTTP `8000`. No painel da Vast.ai, exponha somente a porta HTTP 8000 e abra a URL HTTPS que a própria Vast.ai apresentar em Connect.
 
 A porta 8001 não deve ser publicada. A API é acessada pelo proxy do próprio site, no mesmo domínio. O usuário final não precisa preencher endereço de API nem chave.
 
@@ -78,7 +78,7 @@ git pull --ff-only origin main
 bash start_vastai.sh
 ```
 
-No painel da Vast.ai, publique somente a porta HTTP **8000**. O site e a API GPU são ligados pelo proxy local; a porta interna 8001 não deve ser exposta.
+O site é iniciado em modo servidor Vite para contornar a ausência do artefato `dist/server/server.js` esperado pelo preview do TanStack nesta configuração. No painel da Vast.ai, publique somente a porta HTTP **8000**. O site e a API GPU são ligados pelo proxy local; a porta interna 8001 não deve ser exposta.
 
 ### Perfil de hardware e limites
 
