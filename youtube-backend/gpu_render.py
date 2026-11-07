@@ -202,7 +202,8 @@ def nvdec_available() -> bool:
         return False
 
 
-def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0) -> list[str]:
+def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0,
+                 cpu_threads: int | None = None) -> list[str]:
     bitrate = {"720p": "5M", "1080p": "12M", "1440p": "20M", "4K": "40M"}[p.resolution]
     if use_nvenc:
         encoder = "hevc_nvenc" if p.codec == "h265" else "h264_nvenc"
@@ -219,18 +220,20 @@ def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0) -> list[s
         "quality": ("slow", "18"),
     }[p.quality]
     encoder = "libx265" if p.codec == "h265" else "libx264"
-    return ["-c:v", encoder, "-preset", preset, "-crf", crf, "-threads", str(max(1, int(os.getenv("RENDER_CPU_THREADS", "4"))))]
+    return ["-c:v", encoder, "-preset", preset, "-crf", crf, "-threads", str(max(1, int(cpu_threads or os.getenv("RENDER_CPU_THREADS", "4"))))]
 
 
 def render(video: str, background: str, output: str, p: RenderParams,
            on_progress: Callable[[int, dict], None],
-           start_seconds: float = 0.0, duration_seconds: float | None = None) -> str:
+           start_seconds: float = 0.0, duration_seconds: float | None = None,
+           threads_per_process: int | None = None) -> str:
     vw, vh, source_duration, has_audio, source_fps = probe(video)
     duration = min(source_duration - start_seconds, duration_seconds) if duration_seconds is not None else source_duration
     if start_seconds < 0 or duration <= 0 or start_seconds >= source_duration:
         raise ValueError("Intervalo de segmento inválido.")
     graph = build_filter(p, vw, vh)
-    threads = str(max(1, int(os.getenv("RENDER_FILTER_THREADS", "8"))))
+    worker_threads = max(1, int(threads_per_process or os.getenv("RENDER_THREADS_PER_SEGMENT", "8")))
+    threads = str(max(1, int(os.getenv("RENDER_FILTER_THREADS", worker_threads))))
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
     selected_gpu = select_nvenc_gpu(p.codec) if p.encoder in {"auto", "nvenc"} else None
@@ -250,7 +253,7 @@ def render(video: str, background: str, output: str, p: RenderParams,
                 "-map", "[out]"]
         if has_audio:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
-        cmd += encoder_args(p, use_nvenc, selected_gpu or 0)
+        cmd += encoder_args(p, use_nvenc, selected_gpu or 0, worker_threads)
         target_fps = FPS_VALUES[p.fps]
         if target_fps:
             cmd += ["-r", str(target_fps), "-fps_mode", "cfr"]
