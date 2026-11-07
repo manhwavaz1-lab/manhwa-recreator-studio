@@ -17,6 +17,14 @@ declare global {
 }
 
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
+
+function formatMinutes(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "calculando...";
+  const totalMinutes = Math.max(0, Math.ceil(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}min` : `${minutes} min`;
+}
 const YOUTUBE_BACKEND_URL = ((import.meta.env["VITE_YOUTUBE_BACKEND_URL"] as string | undefined) || "https://manhwa-studio-youtube-api.onrender.com").replace(/\/$/, "");
 
 async function getFfmpeg() {
@@ -83,7 +91,11 @@ function Studio() {
   const [renderedUrl, setRenderedUrl] = useState("");
   const [renderedType, setRenderedType] = useState("");
   const [progress, setProgress] = useState(0);
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState<number | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const renderStartedAt = useRef<number | null>(null);
+  const lastEstimateUpdate = useRef(0);
   const [hideWatermark, setHideWatermark] = useState(false);
   const [markX, setMarkX] = useState(80);
   const [markY, setMarkY] = useState(85);
@@ -117,6 +129,19 @@ function Studio() {
       return;
     }
     setVideoFile(file);
+    setVideoDurationSeconds(null);
+    setRemainingSeconds(null);
+    const metadataVideo = document.createElement("video");
+    const metadataUrl = URL.createObjectURL(file);
+    metadataVideo.preload = "metadata";
+    metadataVideo.onloadedmetadata = () => {
+      if (Number.isFinite(metadataVideo.duration) && metadataVideo.duration > 0) {
+        setVideoDurationSeconds(metadataVideo.duration);
+      }
+      URL.revokeObjectURL(metadataUrl);
+    };
+    metadataVideo.onerror = () => URL.revokeObjectURL(metadataUrl);
+    metadataVideo.src = metadataUrl;
     setVideoPreview(createTrackedUrl(file));
     setRenderedUrl("");
     setMessage("Vídeo carregado. Agora você pode criar a composição.");
@@ -152,6 +177,11 @@ function Studio() {
 
     setBusy(true);
     setProgress(0);
+    renderStartedAt.current = null;
+    lastEstimateUpdate.current = 0;
+    setRemainingSeconds(videoDurationSeconds
+      ? videoDurationSeconds * (outputResolution === "4K" ? 1.8 : 1.15)
+      : null);
     setError("");
     setMessage("");
     let sourceStream: MediaStream | null = null;
@@ -282,6 +312,16 @@ function Studio() {
           lastProgress = nextProgress;
           setProgress(nextProgress);
         }
+        const now = Date.now();
+        if (!renderStartedAt.current) renderStartedAt.current = now;
+        if (now - lastEstimateUpdate.current >= 1000 && video.currentTime > 0.5) {
+          const elapsedSeconds = (now - renderStartedAt.current) / 1000;
+          const mediaSecondsPerWallSecond = video.currentTime / elapsedSeconds;
+          if (mediaSecondsPerWallSecond > 0) {
+            setRemainingSeconds((video.duration - video.currentTime) / mediaSecondsPerWallSecond);
+          }
+          lastEstimateUpdate.current = now;
+        }
       };
       const videoWithFrameCallback = video as HTMLVideoElement & {
         requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime: number }) => void) => number;
@@ -325,6 +365,7 @@ function Studio() {
       setRenderedUrl(outputUrl);
       setRenderedType(blob.type);
       setProgress(100);
+      setRemainingSeconds(0);
 
       const safeName = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.webm";
       const link = document.createElement("a");
@@ -429,10 +470,22 @@ function Studio() {
           <div><span className="oneclick-eyebrow">PRÉVIA DA COMPOSIÇÃO</span><p>A área dentro da janela é o recorte final. Arraste os controles de zoom e posição para escolher exatamente o trecho que ficará visível. O mesmo recorte será usado na exportação em {outputFormat} e {outputResolution}. A imagem de fundo aparece inteira, sem cortes.</p></div>
           {videoPreview && backgroundPreview ? <div className="oneclick-composite" style={{backgroundImage: "url(" + backgroundPreview + ")", aspectRatio: outputFormat === "16:9" ? "16 / 9" : "9 / 16", backgroundSize: "contain", backgroundColor: "#000"}}><video src={videoPreview} muted playsInline style={{ objectFit: cropToFill ? "cover" : "contain", transform: "translate(" + videoOffsetX + "%, " + videoOffsetY + "%) scale(" + (videoZoom / 100) + ")" }}/></div> : <div className="oneclick-empty"><FileImage/><span>Envie os dois arquivos para visualizar a composição</span></div>}
         </section>
+        {videoFile && videoDurationSeconds !== null && !busy && (
+          <div className="oneclick-alert success" style={{ marginTop: 14 }}>
+            <FileVideo size={17}/>
+            <span>Tempo estimado de renderização: <strong>{formatMinutes(videoDurationSeconds * (outputResolution === "4K" ? 1.8 : 1.15))}</strong>. Estimativa inicial; varia conforme o computador e o navegador.</span>
+          </div>
+        )}
         <button className="oneclick-create" onClick={() => void createVideo()} disabled={busy || !videoFile || !backgroundFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
-        {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
+        {busy && <>
+          <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>
+          <p style={{ color: "#aeb6c4", fontSize: 12, textAlign: "center", marginTop: 9 }}>
+            Tempo restante estimado: <strong style={{ color: "#fff" }}>{remainingSeconds === null ? "calculando..." : formatMinutes(remainingSeconds)}</strong>
+            {" · "}A estimativa é recalculada com a velocidade real da renderização.
+          </p>
+        </>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
