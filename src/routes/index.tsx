@@ -18,6 +18,84 @@ declare global {
 
 let ffmpegLoader: Promise<FfmpegInstance> | null = null;
 
+type RenderChunkRecord = { id: string; sessionId: string; sequence: number; blob: Blob };
+type RenderSessionRecord = { id: string; createdAt: number; fileName: string; status: "running" | "complete" };
+
+function openRenderStore(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("manhwa-studio-render-cache", 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("chunks")) {
+        const store = db.createObjectStore("chunks", { keyPath: "id" });
+        store.createIndex("sessionId", "sessionId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("sessions")) db.createObjectStore("sessions", { keyPath: "id" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Não foi possível abrir o armazenamento local."));
+  });
+}
+
+async function saveRenderSession(session: RenderSessionRecord) {
+  const db = await openRenderStore();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction("sessions", "readwrite").objectStore("sessions").put(session);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+}
+
+async function saveRenderChunk(record: RenderChunkRecord) {
+  const db = await openRenderStore();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction("chunks", "readwrite").objectStore("chunks").put(record);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+}
+
+async function loadRenderChunks(sessionId: string): Promise<Blob[]> {
+  const db = await openRenderStore();
+  const records = await new Promise<RenderChunkRecord[]>((resolve, reject) => {
+    const request = db.transaction("chunks", "readonly").objectStore("chunks").index("sessionId").getAll(IDBKeyRange.only(sessionId));
+    request.onsuccess = () => resolve(request.result as RenderChunkRecord[]);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return records.sort((a, b) => a.sequence - b.sequence).map((record) => record.blob);
+}
+
+async function getInterruptedRenderSessions(): Promise<RenderSessionRecord[]> {
+  const db = await openRenderStore();
+  const sessions = await new Promise<RenderSessionRecord[]>((resolve, reject) => {
+    const request = db.transaction("sessions", "readonly").objectStore("sessions").getAll();
+    request.onsuccess = () => resolve((request.result as RenderSessionRecord[]).filter((item) => item.status === "running"));
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return sessions;
+}
+
+async function deleteRenderSession(sessionId: string) {
+  const db = await openRenderStore();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(["chunks", "sessions"], "readwrite");
+    const index = tx.objectStore("chunks").index("sessionId");
+    const request = index.openKeyCursor(IDBKeyRange.only(sessionId));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) { tx.objectStore("chunks").delete(cursor.primaryKey); cursor.continue(); }
+      else tx.objectStore("sessions").delete(sessionId);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
 function formatMinutes(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "calculando...";
   const totalMinutes = Math.max(0, Math.ceil(seconds / 60));
@@ -93,6 +171,9 @@ function Studio() {
   const [progress, setProgress] = useState(0);
   const [videoDurationSeconds, setVideoDurationSeconds] = useState<number | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [renderSpeed, setRenderSpeed] = useState<number | null>(null);
+  const [storageWarning, setStorageWarning] = useState("");
+  const [interruptedSessions, setInterruptedSessions] = useState<RenderSessionRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const renderStartedAt = useRef<number | null>(null);
   const lastEstimateUpdate = useRef(0);
@@ -117,10 +198,34 @@ function Studio() {
     return url;
   }
 
+  useEffect(() => {
+    void getInterruptedRenderSessions().then(setInterruptedSessions).catch(() => {
+      setStorageWarning("O navegador não permitiu consultar as sessões salvas para recuperação.");
+    });
+  }, []);
+
   useEffect(() => () => {
     objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
     objectUrls.current = [];
   }, []);
+
+  async function recoverInterruptedSession(session: RenderSessionRecord) {
+    try {
+      const chunks = await loadRenderChunks(session.id);
+      if (!chunks.length) throw new Error("Não há blocos salvos para recuperar.");
+      const recovered = new Blob(chunks, { type: "video/webm" });
+      const url = createTrackedUrl(recovered);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = session.fileName.replace(/\.webm$/i, "") + "-recuperacao-parcial.webm";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setMessage("Blocos recuperados. Como a gravação foi interrompida antes do fechamento normal do WebM, o arquivo pode estar incompleto ou não abrir em alguns players.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível recuperar os blocos salvos.");
+    }
+  }
 
   function selectVideo(file?: File) {
     if (!file) return;
@@ -182,6 +287,8 @@ function Studio() {
     setRemainingSeconds(videoDurationSeconds
       ? videoDurationSeconds * (outputResolution === "4K" ? 1.8 : 1.15)
       : null);
+    setRenderSpeed(null);
+    setStorageWarning("");
     setError("");
     setMessage("");
     let sourceStream: MediaStream | null = null;
@@ -290,19 +397,49 @@ function Studio() {
       const candidates = sourceStream?.getAudioTracks().length
         ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus"]
         : ["video/webm;codecs=vp9", "video/webm;codecs=vp8"];
-      const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported(type));
-      if (!mimeType) throw new Error("Este navegador não oferece um formato WebM compatível para exportação.");
+      const supportedCandidates = candidates.filter((type) => MediaRecorder.isTypeSupported(type));
+      if (!supportedCandidates.length) throw new Error("Este navegador não oferece um formato WebM compatível para exportação.");
+      let mimeType = supportedCandidates[0];
+      if (navigator.mediaCapabilities?.encodingInfo) {
+        for (const candidate of supportedCandidates) {
+          const info = await navigator.mediaCapabilities.encodingInfo({
+            type: "record",
+            video: {
+              contentType: candidate.split(",")[0],
+              width,
+              height,
+              bitrate: outputResolution === "4K" ? 35_000_000 : 12_000_000,
+              framerate: 30
+            }
+          }).catch(() => null);
+          if (info?.supported && info.smooth && info.powerEfficient) { mimeType = candidate; break; }
+          if (info?.supported && info.smooth) mimeType = candidate;
+        }
+      }
+      setMessage("Codec selecionado: " + (mimeType.includes("vp9") ? "VP9" : "VP8") + ". A aceleração por hardware, quando disponível, é gerenciada pelo navegador.");
 
       const recorder = new MediaRecorder(canvasStream, {
         mimeType,
         videoBitsPerSecond: outputResolution === "4K" ? 35_000_000 : 12_000_000,
         ...(sourceStream?.getAudioTracks().length ? { audioBitsPerSecond: 192_000 } : {})
       });
-      const chunks: BlobPart[] = [];
-      const finished = new Promise<Blob>((resolve, reject) => {
-        recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      const sessionId = "render-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9);
+      const safeName = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.webm";
+      await saveRenderSession({ id: sessionId, createdAt: Date.now(), fileName: safeName, status: "running" });
+      let chunkSequence = 0;
+      let chunkWriteQueue = Promise.resolve();
+      let chunkStorageError: Error | null = null;
+      const finished = new Promise<void>((resolve, reject) => {
+        recorder.ondataavailable = (event) => {
+          if (!event.data.size || chunkStorageError) return;
+          const record = { id: sessionId + ":" + chunkSequence, sessionId, sequence: chunkSequence++, blob: event.data };
+          chunkWriteQueue = chunkWriteQueue.then(() => saveRenderChunk(record)).catch((err: unknown) => {
+            chunkStorageError = err instanceof Error ? err : new Error("Falha ao salvar bloco temporário.");
+            if (recorder.state !== "inactive") recorder.stop();
+          });
+        };
         recorder.onerror = () => reject(new Error("A gravação foi interrompida pelo navegador."));
-        recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType }));
+        recorder.onstop = () => resolve();
       });
 
       let raf = 0;
@@ -320,6 +457,7 @@ function Studio() {
           const elapsedSeconds = (now - renderStartedAt.current) / 1000;
           const mediaSecondsPerWallSecond = video.currentTime / elapsedSeconds;
           if (mediaSecondsPerWallSecond > 0) {
+            setRenderSpeed(mediaSecondsPerWallSecond);
             setRemainingSeconds((video.duration - video.currentTime) / mediaSecondsPerWallSecond);
           }
           lastEstimateUpdate.current = now;
@@ -352,7 +490,8 @@ function Studio() {
         }
       };
 
-      recorder.start(1000);
+      // Fragmentos periódicos vão para o IndexedDB, não ficam acumulados em RAM.
+      recorder.start(5000);
       video.onended = () => { stopPainting(); if (recorder.state !== "inactive") recorder.stop(); };
       await video.play();
       if (videoWithFrameCallback.requestVideoFrameCallback) {
@@ -360,23 +499,31 @@ function Studio() {
       } else {
         paintFallback();
       }
-      const blob = await finished;
+      await finished;
       stopPainting();
+      await chunkWriteQueue;
+      if (chunkStorageError) {
+        setStorageWarning("O armazenamento local falhou. A gravação foi interrompida para evitar continuar sem cópia de segurança.");
+        throw chunkStorageError;
+      }
+      const storedChunks = await loadRenderChunks(sessionId);
+      const blob = new Blob(storedChunks, { type: recorder.mimeType });
       if (!blob.size) throw new Error("O arquivo exportado ficou vazio. Tente novamente.");
+      await saveRenderSession({ id: sessionId, createdAt: Date.now(), fileName: safeName, status: "complete" });
       const outputUrl = createTrackedUrl(blob);
       setRenderedUrl(outputUrl);
       setRenderedType(blob.type);
       setProgress(100);
       setRemainingSeconds(0);
 
-      const safeName = ((videoFile?.name || "youtube-video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.webm";
       const link = document.createElement("a");
       link.href = outputUrl;
       link.download = safeName;
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setMessage("Vídeo criado. O FFmpeg removeu os metadados descritivos do contêiner; os dados técnicos necessários para reprodução permanecem.");
+      await deleteRenderSession(sessionId);
+      setMessage("Vídeo WebM criado. Os blocos temporários foram removidos do armazenamento local.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar o vídeo.");
     } finally {
@@ -485,9 +632,19 @@ function Studio() {
           <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>
           <p style={{ color: "#aeb6c4", fontSize: 12, textAlign: "center", marginTop: 9 }}>
             Tempo restante estimado: <strong style={{ color: "#fff" }}>{remainingSeconds === null ? "calculando..." : formatMinutes(remainingSeconds)}</strong>
+            {" · "}Velocidade: <strong style={{ color: "#fff" }}>{renderSpeed === null ? "medindo..." : renderSpeed.toFixed(2) + "×"}</strong>
             {" · "}A estimativa é recalculada com a velocidade real da renderização.
           </p>
         </>}
+        {storageWarning && <div className="oneclick-alert error"><ShieldCheck size={17}/>{storageWarning}</div>}
+        {interruptedSessions.length > 0 && <section className="oneclick-card" style={{ marginTop: 14 }}>
+          <strong>RECUPERAÇÃO DE RENDERIZAÇÃO INTERROMPIDA</strong>
+          <p style={{ color: "#aeb6c4", fontSize: 12 }}>Encontramos blocos temporários de uma renderização anterior. É possível tentar salvar o trecho recuperável, mas o WebM pode estar incompleto se o navegador fechou antes de finalizar o arquivo.</p>
+          {interruptedSessions.map((session) => <div key={session.id} className="oneclick-file">
+            <span>{session.fileName} · {new Date(session.createdAt).toLocaleString("pt-BR")}</span>
+            <button type="button" onClick={() => void recoverInterruptedSession(session)}>Tentar recuperar</button>
+          </div>)}
+        </section>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
