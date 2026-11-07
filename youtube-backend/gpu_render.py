@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
+from threading import Lock
 
 
 RESOLUTIONS = {
@@ -18,6 +19,8 @@ RESOLUTIONS = {
     "4K": (3840, 2160),
 }
 FPS_VALUES = {"original": None, "24": 24, "30": 30, "50": 50, "60": 60}
+_GPU_RESERVATION_LOCK = Lock()
+_GPU_ACTIVE_JOBS: dict[int, int] = {}
 
 
 @dataclass
@@ -190,6 +193,34 @@ def select_nvenc_gpu(codec: str) -> int | None:
     return candidates[0]["index"]
 
 
+def reserve_nvenc_gpu(codec: str) -> int | None:
+    """Reserve the least-loaded NVENC GPU for this render within this API process."""
+    devices = list_nvidia_gpus()
+    candidates = [gpu for gpu in devices if nvenc_available(codec, gpu["index"])]
+    if not candidates:
+        return None
+    with _GPU_RESERVATION_LOCK:
+        candidates.sort(key=lambda gpu: (
+            _GPU_ACTIVE_JOBS.get(gpu["index"], 0),
+            gpu["utilization_percent"],
+            gpu["memory_used_mb"] / max(1, gpu["memory_total_mb"]),
+        ))
+        chosen = candidates[0]["index"]
+        _GPU_ACTIVE_JOBS[chosen] = _GPU_ACTIVE_JOBS.get(chosen, 0) + 1
+        return chosen
+
+
+def release_nvenc_gpu(gpu_index: int | None) -> None:
+    if gpu_index is None:
+        return
+    with _GPU_RESERVATION_LOCK:
+        active = _GPU_ACTIVE_JOBS.get(gpu_index, 0)
+        if active <= 1:
+            _GPU_ACTIVE_JOBS.pop(gpu_index, None)
+        else:
+            _GPU_ACTIVE_JOBS[gpu_index] = active - 1
+
+
 @lru_cache(maxsize=1)
 def nvdec_available() -> bool:
     try:
@@ -222,14 +253,13 @@ def encoder_args(p: RenderParams, use_nvenc: bool, gpu_index: int = 0) -> list[s
     return ["-c:v", encoder, "-preset", preset, "-crf", crf, "-threads", str(max(1, int(os.getenv("RENDER_THREADS", os.cpu_count() or 8))))]
 
 
-def render(video: str, background: str, output: str, p: RenderParams,
-           on_progress: Callable[[int, dict], None]) -> str:
+def _render_reserved(video: str, background: str, output: str, p: RenderParams,
+                     on_progress: Callable[[int, dict], None], selected_gpu: int | None) -> str:
     vw, vh, duration, has_audio, source_fps = probe(video)
     graph = build_filter(p, vw, vh)
     threads = str(max(1, int(os.getenv("RENDER_THREADS", os.cpu_count() or 8))))
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
-    selected_gpu = select_nvenc_gpu(p.codec) if p.encoder in {"auto", "nvenc"} else None
     if p.encoder == "nvenc" and selected_gpu is None:
         raise RuntimeError("Nenhuma das GPUs NVIDIA disponibiliza NVENC para o codec selecionado.")
     use_nvenc_first = p.encoder in {"auto", "nvenc"} and selected_gpu is not None
@@ -294,3 +324,13 @@ def render(video: str, background: str, output: str, p: RenderParams,
         return "CPU fallback (" + gpu_error[:120] + ")"
     except Exception as exc:
         raise RuntimeError("Falha na renderização GPU e CPU: " + str(exc)) from exc
+
+
+
+def render(video: str, background: str, output: str, p: RenderParams,
+           on_progress: Callable[[int, dict], None]) -> str:
+    selected_gpu = reserve_nvenc_gpu(p.codec) if p.encoder in {"auto", "nvenc"} else None
+    try:
+        return _render_reserved(video, background, output, p, on_progress, selected_gpu)
+    finally:
+        release_nvenc_gpu(selected_gpu)
