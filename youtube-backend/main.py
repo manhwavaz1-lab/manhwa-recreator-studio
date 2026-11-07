@@ -145,6 +145,40 @@ def download_youtube(url: str, workdir: Path, job_id: str) -> str:
     return str(source)
 
 
+
+_core_samples: dict[str, tuple[int, int]] = {}
+_core_lock = Lock()
+
+@app.get("/api/system/cores")
+def system_cores():
+    """Per-core CPU utilization sampled from Linux /proc/stat."""
+    if not Path("/proc/stat").exists():
+        return {"cores": [], "count": os.cpu_count() or 1}
+    current = {}
+    with open("/proc/stat", "r", encoding="utf-8") as stats:
+        for line in stats:
+            parts = line.split()
+            if not parts or not re.fullmatch(r"cpu\\d+", parts[0]):
+                continue
+            values = [int(value) for value in parts[1:]]
+            idle = values[3] + (values[4] if len(values) > 4 else 0)
+            total = sum(values)
+            current[parts[0]] = (total, idle)
+    readings = []
+    with _core_lock:
+        for name, (total, idle) in current.items():
+            previous = _core_samples.get(name)
+            usage = 0.0
+            if previous:
+                total_delta = total - previous[0]
+                idle_delta = idle - previous[1]
+                if total_delta > 0:
+                    usage = max(0.0, min(100.0, (total_delta - idle_delta) * 100 / total_delta))
+            readings.append({"core": int(name[3:]) + 1, "usage": round(usage, 1)})
+        _core_samples.clear()
+        _core_samples.update(current)
+    return {"cores": readings, "count": len(readings)}
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "manhwa-studio-gpu-renderer", "version": "3.1.0"}
