@@ -299,6 +299,15 @@ function Studio() {
       const bgScale = Math.min(width / background.width, height / background.height);
       const bgW = background.width * bgScale;
       const bgH = background.height * bgScale;
+      const bgCanvas = new OffscreenCanvas(width, height);
+      const bgCtx = bgCanvas.getContext("2d", { alpha: false });
+      if (!bgCtx) throw new Error("Não foi possível iniciar o renderizador.");
+      bgCtx.fillStyle = "#000000";
+      bgCtx.fillRect(0, 0, width, height);
+      bgCtx.drawImage(background, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH);
+      const blurCanvas = new OffscreenCanvas(1, 1);
+      const blurCtx = blurCanvas.getContext("2d");
+      if (!blurCtx) throw new Error("Não foi possível iniciar o renderizador.");
 
       const input = new mb.Input({ source: new mb.BlobSource(videoFile), formats: mb.ALL_FORMATS });
       const duration = await input.computeDuration();
@@ -320,37 +329,47 @@ function Studio() {
             const frame = sample.toCanvasImageSource();
             const vw = sample.displayWidth;
             const vh = sample.displayHeight;
-            ctx.fillStyle = "#000000";
-            ctx.fillRect(0, 0, width, height);
-            ctx.drawImage(background, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH);
+            // Fundo pré-composto uma única vez (sem fillRect/escala por quadro)
+            ctx.drawImage(bgCanvas, 0, 0);
             const safeW = width * 0.84;
             const safeH = height * 0.84;
+            const safeX = (width - safeW) / 2;
+            const safeY = (height - safeH) / 2;
             const baseScale = cropToFill ? Math.max(safeW / vw, safeH / vh) : Math.min(safeW / vw, safeH / vh);
             const s = baseScale * (videoZoom / 100);
             const w = vw * s;
             const h = vh * s;
             const x = (width - w) / 2 + (videoOffsetX / 100) * safeW * 0.5;
             const y = (height - h) / 2 + (videoOffsetY / 100) * safeH * 0.5;
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect((width - safeW) / 2, (height - safeH) / 2, safeW, safeH);
-            ctx.clip();
-            ctx.drawImage(frame, x, y, w, h);
-            ctx.restore();
+            // Recorte por coordenadas (sem ctx.clip/save/restore)
+            const dx0 = Math.max(x, safeX);
+            const dy0 = Math.max(y, safeY);
+            const dx1 = Math.min(x + w, safeX + safeW);
+            const dy1 = Math.min(y + h, safeY + safeH);
+            if (dx1 > dx0 && dy1 > dy0) {
+              ctx.drawImage(frame, (dx0 - x) / s, (dy0 - y) / s, (dx1 - dx0) / s, (dy1 - dy0) / s, dx0, dy0, dx1 - dx0, dy1 - dy0);
+            }
             if (hideWatermark) {
               const sx = (Math.max(0, Math.min(99, markX)) / 100) * vw;
               const sy = (Math.max(0, Math.min(99, markY)) / 100) * vh;
               const sw = (Math.max(1, Math.min(100 - markX, markW)) / 100) * vw;
               const sh = (Math.max(1, Math.min(100 - markY, markH)) / 100) * vh;
-              ctx.save();
-              ctx.filter = "blur(14px)";
-              ctx.drawImage(frame, sx, sy, sw, sh, x + sx * s, y + sy * s, sw * s, sh * s);
-              ctx.restore();
+              // Desfoque rápido: reduz e re-estica (sem filtro gaussiano)
+              const tw = Math.max(1, Math.round(sw / 12));
+              const th = Math.max(1, Math.round(sh / 12));
+              if (blurCanvas.width !== tw || blurCanvas.height !== th) {
+                blurCanvas.width = tw;
+                blurCanvas.height = th;
+              }
+              blurCtx!.drawImage(frame, sx, sy, sw, sh, 0, 0, tw, th);
+              ctx.imageSmoothingQuality = "low";
+              ctx.drawImage(blurCanvas, x + sx * s, y + sy * s, sw * s, sh * s);
             }
             return canvas;
           }
         },
-        audio: { codec: "aac", bitrate: 192_000 }
+        // Copia o áudio AAC original sem recodificar quando possível
+        audio: (track) => (track.codec === "aac" ? {} : { codec: "aac", bitrate: 192_000 })
       });
       if (!conversion.isValid) return false;
 
