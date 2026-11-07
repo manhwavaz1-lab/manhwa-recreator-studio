@@ -52,3 +52,41 @@ npm run dev
 ```
 
 Para o backend local, inicie FastAPI na porta 8001; o proxy do Vite encaminha `/api` e `/health` automaticamente.
+
+
+## Vast.ai — perfil RTX 5060 Ti (Ubuntu 24.04 / CUDA 12.9)
+
+O perfil recomendado para instâncias como RTX 5060 Ti 16 GB VRAM, AMD EPYC e 64 GB de RAM usa o renderizador FastAPI + FFmpeg/NVENC. A aplicação recebe o vídeo e a moldura pelo navegador, renderiza no servidor Vast.ai e disponibiliza o MP4 final.
+
+### Inicialização rápida
+
+Na instância Vast.ai, execute na pasta `/workspace`:
+
+```bash
+git clone -b rebuild-vastai-rtx5060ti https://github.com/manhwavaz1-lab/manhwa-recreator-studio.git
+cd manhwa-recreator-studio
+bash start_vastai.sh
+```
+
+Se o repositório já estiver clonado:
+
+```bash
+cd /workspace/manhwa-recreator-studio
+git fetch origin
+git switch rebuild-vastai-rtx5060ti
+git pull --ff-only origin rebuild-vastai-rtx5060ti
+bash start_vastai.sh
+```
+
+No painel da Vast.ai, publique somente a porta HTTP **8000**. O site e a API GPU são ligados pelo proxy local; a porta interna 8001 não deve ser exposta.
+
+### Perfil de hardware e limites
+
+- Detecta GPU NVIDIA, VRAM, driver e suporte NVENC em tempo de execução.
+- Usa NVENC H.264/H.265 quando disponível e fallback CPU quando necessário.
+- Uma renderização por vez por padrão para evitar disputa de VRAM e disco.
+- Vídeo e moldura são enviados diretamente à instância; a saída é MP4.
+- A VRAM de GPUs diferentes nunca é somada. A configuração atual foi dimensionada para uma GPU de aproximadamente 16 GB.
+- O número de threads é configurável por `RENDER_THREADS`; não significa que a codificação NVENC escale linearmente com os núcleos da CPU.
+
+**Importante:** a velocidade real depende do codec, resolução, filtros, FPS, duração, armazenamento e driver. A detecção de NVENC não substitui um teste de renderização ponta a ponta.
