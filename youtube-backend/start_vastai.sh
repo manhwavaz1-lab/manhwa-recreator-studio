@@ -42,7 +42,7 @@ python -m pip install -r requirements.txt
 
 echo "-- Preparando interface do site --"
 cd "$ROOT_DIR"
-npm install --no-audit --no-fund
+npm ci
 npm run build
 
 echo "-- Iniciando API GPU interna --"
@@ -73,4 +73,4 @@ PY
 echo "-- Abrindo o site completo em uma única porta --"
 echo "No painel Vast.ai, publique SOMENTE a porta HTTP $SITE_PORT."
 echo "Abra a URL HTTPS gerada pela Vast.ai. Não há URL de API nem chave para digitar."
-exec npm run dev -- --host 0.0.0.0 --port "$SITE_PORT" --strictPort
+exec npm run preview -- --host 0.0.0.0 --port "$SITE_PORT" --strictPort
