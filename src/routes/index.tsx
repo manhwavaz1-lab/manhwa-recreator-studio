@@ -4,6 +4,7 @@ import { Check, Download, FileImage, FileVideo, LoaderCircle, Play, ShieldCheck,
 
 export const Route = createFileRoute("/")({ component: Studio });
 
+type CoreUsage = { core: number; usage: number };
 type GpuInfo = { base: string; gpu: string; gpu_memory: string; driver: string; nvenc_h264: boolean; nvenc_h265: boolean; nvdec: boolean; cpus: number; render_threads: number };
 
 async function detectGpuServer(): Promise<GpuInfo | null> {
@@ -39,11 +40,28 @@ function Studio() {
   const [videoOffsetY, setVideoOffsetY] = useState(0);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [gpuChecked, setGpuChecked] = useState(false);
+  const [coreUsage, setCoreUsage] = useState<CoreUsage[]>([]);
   useEffect(() => {
     let cancelled = false;
     void detectGpuServer().then((info) => { if (!cancelled) { setGpuInfo(info); setGpuChecked(true); } });
     return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    if (!busy || !gpuInfo) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch(gpuInfo.base + "/api/system/cores");
+        if (response.ok) {
+          const data = await response.json() as { cores?: CoreUsage[] };
+          if (active) setCoreUsage(data.cores || []);
+        }
+      } catch { /* keep the latest sample visible if a poll fails */ }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [busy, gpuInfo]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const backgroundInput = useRef<HTMLInputElement>(null);
@@ -441,7 +459,19 @@ function Studio() {
         <button className="oneclick-create" onClick={() => void createVideoOnGpu()} disabled={busy || !gpuInfo || !backgroundFile || !videoFile}>
           {busy ? <><LoaderCircle className="oneclick-spin"/> PROCESSANDO {progress}%</> : <><Play/> CRIAR VÍDEO COM 1 CLIQUE <span>→</span></>}
         </button>
-        {busy && <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>}
+        {busy && <>
+          <div className="oneclick-progress"><span style={{width: progress + "%"}}/></div>
+          <section className="oneclick-card" style={{ marginTop: 14 }}>
+            <div className="oneclick-card-title"><ShieldCheck/><div><strong>MONITOR DE CPU · TEMPO REAL</strong><small>{coreUsage.length} núcleos lógicos detectados · atualização a cada 1,5 s</small></div></div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(82px, 1fr))", gap: 8 }}>
+              {coreUsage.map((core) => <div key={core.core} style={{ background: "#11151b", border: "1px solid #29313c", borderRadius: 8, padding: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aab4c2" }}><span>CORE {core.core}</span><strong style={{ color: core.usage >= 85 ? "#fb7185" : "#67e8a5" }}>{Math.round(core.usage)}%</strong></div>
+                <div style={{ height: 5, background: "#29313c", borderRadius: 8, marginTop: 7, overflow: "hidden" }}><div style={{ width: core.usage + "%", height: "100%", background: core.usage >= 85 ? "#fb7185" : "#22c55e", transition: "width .4s" }}/></div>
+              </div>)}
+            </div>
+            <p className="output-dimensions">Meta de desempenho: 15x em relação ao tempo real. A velocidade efetiva será medida durante a renderização; o uso de todos os núcleos não garante 15x.</p>
+          </section>
+        </>}
         {error && <div className="oneclick-alert error"><X size={17}/>{error}</div>}
         {message && <div className="oneclick-alert success"><Check size={17}/>{message}</div>}
         {renderedUrl && <section className="oneclick-result"><div><span className="oneclick-eyebrow">EXPORTAÇÃO CONCLUÍDA</span><strong>Seu vídeo está pronto</strong><small>{renderedType || "WebM"} · exportação processada</small></div><video src={renderedUrl} controls/><a className="oneclick-download" href={renderedUrl} download={(videoFile?.name.replace(/\.[^.]+$/, "") || "video") + (renderedType.startsWith("MP4") ? "-manhwa-studio.mp4" : "-com-moldura.webm")}><Download size={16}/> Baixar novamente</a></section>}
