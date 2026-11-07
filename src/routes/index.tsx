@@ -523,13 +523,13 @@ function Studio() {
         : ["video/webm;codecs=vp9", "video/webm;codecs=vp8"];
       const supportedCandidates = candidates.filter((type) => MediaRecorder.isTypeSupported(type));
       if (!supportedCandidates.length) throw new Error("Este navegador não oferece um formato WebM compatível para exportação.");
-      let mimeType = supportedCandidates[0];
+      let mimeType: string = supportedCandidates[0] ?? "video/webm";
       if (navigator.mediaCapabilities?.encodingInfo) {
         for (const candidate of supportedCandidates) {
           const info = await navigator.mediaCapabilities.encodingInfo({
             type: "record",
             video: {
-              contentType: candidate.split(",")[0],
+              contentType: candidate.split(",")[0] ?? candidate,
               width,
               height,
               bitrate: outputResolution === "4K" ? 35_000_000 : 12_000_000,
