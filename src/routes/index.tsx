@@ -270,10 +270,134 @@ function Studio() {
     setError("");
   }
 
+  // Renderização acelerada (WebCodecs): decodifica e codifica sem esperar o
+  // vídeo tocar em tempo real. Retorna false para cair no modo antigo.
+  async function createVideoFast(): Promise<boolean> {
+    if (!videoFile || !backgroundFile) return false;
+    setBusy(true);
+    setProgress(0);
+    setRenderSpeed(null);
+    setRemainingSeconds(null);
+    setStorageWarning("");
+    setError("");
+    setMessage("Renderização acelerada (WebCodecs) iniciada...");
+    try {
+      const mb = await import("mediabunny");
+      const background = new Image();
+      background.src = createTrackedUrl(backgroundFile);
+      await new Promise<void>((resolve, reject) => {
+        background.onload = () => resolve();
+        background.onerror = () => reject(new Error("Não foi possível abrir a imagem de fundo."));
+      });
+      const isLandscape = outputFormat === "16:9";
+      const is4K = outputResolution === "4K";
+      const width = isLandscape ? (is4K ? 3840 : 1920) : (is4K ? 2160 : 1080);
+      const height = isLandscape ? (is4K ? 2160 : 1080) : (is4K ? 3840 : 1920);
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext("2d", { alpha: false });
+      if (!ctx) throw new Error("Não foi possível iniciar o renderizador.");
+      const bgScale = Math.min(width / background.width, height / background.height);
+      const bgW = background.width * bgScale;
+      const bgH = background.height * bgScale;
+
+      const input = new mb.Input({ source: new mb.BlobSource(videoFile), formats: mb.ALL_FORMATS });
+      const duration = await input.computeDuration();
+      setVideoDurationSeconds(duration);
+      const target = new mb.BufferTarget();
+      const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: "in-memory" }), target });
+
+      const conversion = await mb.Conversion.init({
+        input,
+        output,
+        tags: {},
+        video: {
+          codec: "avc",
+          bitrate: is4K ? 35_000_000 : 12_000_000,
+          hardwareAcceleration: "prefer-hardware",
+          processedWidth: width,
+          processedHeight: height,
+          process: (sample) => {
+            const frame = sample.toCanvasImageSource();
+            const vw = sample.displayWidth;
+            const vh = sample.displayHeight;
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(background, (width - bgW) / 2, (height - bgH) / 2, bgW, bgH);
+            const safeW = width * 0.84;
+            const safeH = height * 0.84;
+            const baseScale = cropToFill ? Math.max(safeW / vw, safeH / vh) : Math.min(safeW / vw, safeH / vh);
+            const s = baseScale * (videoZoom / 100);
+            const w = vw * s;
+            const h = vh * s;
+            const x = (width - w) / 2 + (videoOffsetX / 100) * safeW * 0.5;
+            const y = (height - h) / 2 + (videoOffsetY / 100) * safeH * 0.5;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect((width - safeW) / 2, (height - safeH) / 2, safeW, safeH);
+            ctx.clip();
+            ctx.drawImage(frame, x, y, w, h);
+            ctx.restore();
+            if (hideWatermark) {
+              const sx = (Math.max(0, Math.min(99, markX)) / 100) * vw;
+              const sy = (Math.max(0, Math.min(99, markY)) / 100) * vh;
+              const sw = (Math.max(1, Math.min(100 - markX, markW)) / 100) * vw;
+              const sh = (Math.max(1, Math.min(100 - markY, markH)) / 100) * vh;
+              ctx.save();
+              ctx.filter = "blur(14px)";
+              ctx.drawImage(frame, sx, sy, sw, sh, x + sx * s, y + sy * s, sw * s, sh * s);
+              ctx.restore();
+            }
+            return canvas;
+          }
+        },
+        audio: { codec: "aac", bitrate: 192_000 }
+      });
+      if (!conversion.isValid) return false;
+
+      const startedAt = Date.now();
+      conversion.onProgress = (p, processedTime) => {
+        setProgress(Math.min(99, Math.floor(p * 100)));
+        const elapsed = (Date.now() - startedAt) / 1000;
+        if (elapsed > 1 && processedTime > 0) {
+          const speed = processedTime / elapsed;
+          setRenderSpeed(speed);
+          setRemainingSeconds((duration - processedTime) / speed);
+        }
+      };
+      await conversion.execute();
+      if (!target.buffer) throw new Error("O arquivo exportado ficou vazio.");
+      const blob = new Blob([target.buffer], { type: "video/mp4" });
+      const safeName = ((videoFile.name || "video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.mp4";
+      const outputUrl = createTrackedUrl(blob);
+      setRenderedUrl(outputUrl);
+      setRenderedType(blob.type);
+      setProgress(100);
+      setRemainingSeconds(0);
+      const link = document.createElement("a");
+      link.href = outputUrl;
+      link.download = safeName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setMessage(`Vídeo MP4 criado em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s), sem metadados.`);
+      return true;
+    } catch (err) {
+      console.warn("WebCodecs falhou, usando modo tempo real", err);
+      setMessage("Modo acelerado indisponível para este arquivo. Usando modo tempo real...");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createVideo() {
     if (!videoFile || !backgroundFile) {
       setError("Baixe o vídeo pelo YTDown, selecione o arquivo MP4 e envie a imagem PNG/JPEG.");
       return;
+    }
+    if ("VideoEncoder" in window && "VideoDecoder" in window) {
+      const ok = await createVideoFast();
+      if (ok) return;
     }
     if (!("MediaRecorder" in window) || !HTMLCanvasElement.prototype.captureStream) {
       setError("Seu navegador não oferece a gravação necessária. Use a versão atual do Chrome ou Edge.");
