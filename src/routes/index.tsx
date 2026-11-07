@@ -280,25 +280,8 @@ function Studio() {
     setRemainingSeconds(null);
     setStorageWarning("");
     setError("");
-    setMessage("Preparando renderização otimizada para este computador...");
-    const safeName = ((videoFile.name || "video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.mp4";
-    let saveHandle: { createWritable: () => Promise<WritableStream> } | null = null;
+    setMessage("Renderização acelerada (WebCodecs) iniciada...");
     try {
-      // O seletor precisa ser aberto antes do primeiro await para preservar o clique do usuário.
-      const savePicker = (window as Window & {
-        showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<{ createWritable: () => Promise<WritableStream> }>;
-      }).showSaveFilePicker;
-      if (savePicker) {
-        try {
-          saveHandle = await savePicker.call(window, { suggestedName: safeName });
-        } catch (pickerError) {
-          if (pickerError instanceof Error && pickerError.name === "AbortError") {
-            setMessage("Exportação cancelada pelo usuário.");
-            return true;
-          }
-          throw pickerError;
-        }
-      }
       const mb = await import("mediabunny");
       const background = new Image();
       background.src = createTrackedUrl(backgroundFile);
@@ -320,29 +303,8 @@ function Studio() {
       const input = new mb.Input({ source: new mb.BlobSource(videoFile), formats: mb.ALL_FORMATS });
       const duration = await input.computeDuration();
       setVideoDurationSeconds(duration);
-      // Este notebook tem i7 móvel de 2 núcleos/4 threads e 16 GB de RAM.
-      // Vídeos longos precisam obrigatoriamente sair em fluxo para o SSD.
-      if (!saveHandle && duration > 20 * 60) {
-        setError("Para vídeos acima de 20 minutos, abra este projeto no Chrome ou Edge atualizado e escolha um destino no SSD. Este notebook tem 16 GB de RAM; montar um MP4 longo na memória pode travar o navegador.");
-        return true;
-      }
-      const cpuThreads = navigator.hardwareConcurrency || 4;
-      const lowPowerNotebook = cpuThreads <= 4;
-      const videoBitrate = is4K
-        ? (lowPowerNotebook ? 18_000_000 : 22_000_000)
-        : (lowPowerNotebook ? 7_500_000 : 8_500_000);
-      // StreamTarget grava no SSD em blocos e evita manter o MP4 completo na RAM.
-      const bufferTarget = saveHandle ? null : new mb.BufferTarget();
-      const target = saveHandle
-        ? new mb.StreamTarget(await saveHandle.createWritable(), { chunked: true, chunkSize: 4 * 1024 * 1024 })
-        : bufferTarget!;
-      const output = new mb.Output({
-        format: new mb.Mp4OutputFormat({ fastStart: saveHandle ? false : "in-memory" }),
-        target
-      });
-      if (!saveHandle) {
-        setStorageWarning("Este navegador não oferece gravação direta no SSD. O MP4 será montado na memória; use Chrome ou Edge atualizado para vídeos longos.");
-      }
+      const target = new mb.BufferTarget();
+      const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: "in-memory" }), target });
 
       const conversion = await mb.Conversion.init({
         input,
@@ -350,8 +312,7 @@ function Studio() {
         tags: {},
         video: {
           codec: "avc",
-          // Perfil adaptativo: 7,5 Mbps em 1080p e 18 Mbps em 4K para CPUs móveis de 4 threads.
-          bitrate: videoBitrate,
+          bitrate: is4K ? 35_000_000 : 12_000_000,
           hardwareAcceleration: "prefer-hardware",
           processedWidth: width,
           processedHeight: height,
@@ -389,9 +350,9 @@ function Studio() {
             return canvas;
           }
         },
-        audio: { codec: "aac", bitrate: 128_000 }
+        audio: { codec: "aac", bitrate: 192_000 }
       });
-      if (!conversion.isValid) throw new Error("O navegador não encontrou uma combinação compatível de codecs para esta exportação.");
+      if (!conversion.isValid) return false;
 
       const startedAt = Date.now();
       conversion.onProgress = (p, processedTime) => {
@@ -404,34 +365,23 @@ function Studio() {
         }
       };
       await conversion.execute();
+      if (!target.buffer) throw new Error("O arquivo exportado ficou vazio.");
+      const blob = new Blob([target.buffer], { type: "video/mp4" });
+      const safeName = ((videoFile.name || "video").replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "-") || "video") + "-com-moldura.mp4";
+      const outputUrl = createTrackedUrl(blob);
+      setRenderedUrl(outputUrl);
+      setRenderedType(blob.type);
       setProgress(100);
       setRemainingSeconds(0);
-      if (saveHandle) {
-        setRenderedUrl("");
-        setRenderedType("video/mp4");
-        setMessage(`MP4 salvo diretamente no SSD em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s). Perfil ${lowPowerNotebook ? "notebook econômico (4 threads)" : "multithread"} · ${(videoBitrate / 1_000_000).toFixed(1)} Mbps · sem acumular o arquivo inteiro na RAM.`);
-      } else {
-        if (!bufferTarget?.buffer) throw new Error("O arquivo exportado ficou vazio.");
-        const blob = new Blob([bufferTarget.buffer], { type: "video/mp4" });
-        const outputUrl = createTrackedUrl(blob);
-        setRenderedUrl(outputUrl);
-        setRenderedType(blob.type);
-        const link = document.createElement("a");
-        link.href = outputUrl;
-        link.download = safeName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setMessage(`MP4 criado em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s). Para vídeos longos, prefira Chrome/Edge com gravação direta no SSD.`);
-      }
+      const link = document.createElement("a");
+      link.href = outputUrl;
+      link.download = safeName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setMessage(`Vídeo MP4 criado em modo acelerado (${((Date.now() - startedAt) / 1000).toFixed(0)}s), sem metadados.`);
       return true;
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Erro desconhecido durante a renderização.";
-      if (saveHandle) {
-        // Evita iniciar um segundo render em tempo real depois que o usuário escolheu um arquivo no SSD.
-        setError("A exportação acelerada falhou: " + detail + " Tente novamente em Chrome/Edge atualizado com saída 1080p.");
-        return true;
-      }
       console.warn("WebCodecs falhou, usando modo tempo real", err);
       setMessage("Modo acelerado indisponível para este arquivo. Usando modo tempo real...");
       return false;
@@ -439,6 +389,7 @@ function Studio() {
       setBusy(false);
     }
   }
+
   async function createVideo() {
     if (!videoFile || !backgroundFile) {
       setError("Baixe o vídeo pelo YTDown, selecione o arquivo MP4 e envie a imagem PNG/JPEG.");
