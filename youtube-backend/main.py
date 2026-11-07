@@ -295,8 +295,7 @@ def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
         concat_file = directory / "segments.txt"
         with concat_file.open("w", encoding="utf-8") as handle:
             for segment_path in outputs:
-                escaped = str(segment_path).replace("'", "'\\''")
-                handle.write(f"file '{escaped}'\\n")
+                handle.write("file '" + str(segment_path) + "'\n")
         final_output = directory / "manhwa-studio-output.mp4"
         update_job(job_id, message="Unindo as três partes sem recodificar...")
         concat = subprocess.run(
