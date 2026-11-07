@@ -7,7 +7,12 @@ BACKEND_DIR="$ROOT_DIR/youtube-backend"
 SITE_PORT="${PORT:-8000}"
 API_PORT=8001
 CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
-export RENDER_THREADS="${RENDER_THREADS:-$CPU_COUNT}"
+# Cap the default for high-vCPU hosts; NVENC does the video encoding on the GPU.
+DEFAULT_RENDER_THREADS="$CPU_COUNT"
+if [ "$DEFAULT_RENDER_THREADS" -gt 32 ]; then DEFAULT_RENDER_THREADS=32; fi
+export RENDER_THREADS="${RENDER_THREADS:-$DEFAULT_RENDER_THREADS}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$RENDER_THREADS}"
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$RENDER_THREADS}"
 export RENDER_SLOTS="${RENDER_SLOTS:-1}"
 export RATE_LIMIT="${RATE_LIMIT:-10}"
 export MAX_FILE_BYTES="${MAX_FILE_BYTES:-21474836480}"
@@ -42,7 +47,7 @@ python -m pip install -r requirements.txt
 
 echo "-- Preparando interface do site --"
 cd "$ROOT_DIR"
-npm ci
+npm install --no-audit --no-fund
 npm run build
 
 echo "-- Iniciando API GPU interna --"
