@@ -248,6 +248,8 @@ def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
         progress_lock = Lock()
         completed_progress = [0.0] * segment_count
         engines = []
+        total_cpu_threads = max(1, int(os.getenv("RENDER_THREADS", os.cpu_count() or 1)))
+        threads_per_part, extra_threads = divmod(total_cpu_threads, segment_count)
 
         def render_part(index: int):
             item = segments[index]
@@ -271,8 +273,10 @@ def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
                                elapsed_seconds=stats.get("elapsed_seconds"),
                                eta_seconds=stats.get("eta_seconds"), speed=stats.get("speed"),
                                segments=snapshot)
+            worker_threads = threads_per_part + (1 if index < extra_threads else 0)
             engine = render(video_path, background_path, output, params, progress,
-                            start_seconds=item["start"], duration_seconds=item["duration"])
+                            start_seconds=item["start"], duration_seconds=item["duration"],
+                            threads_per_process=worker_threads)
             with progress_lock:
                 completed_progress[index] = 100
                 engines.append(engine)
