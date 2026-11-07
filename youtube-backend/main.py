@@ -35,7 +35,7 @@ JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
 jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
 rate_lock, jobs_lock = Lock(), Lock()
-render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", "3"))))
+render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", "1"))))
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtube-nocookie.com"}
 
 
@@ -182,8 +182,9 @@ def run_render_job(job_id: str, workdir: str, youtube_url: str | None,
                    video_path: str | None, background_path: str, params: RenderParams) -> None:
     directory = Path(workdir)
     try:
-        if not render_slots.acquire(blocking=False):
-            raise RuntimeError("Limite de 3 renderizações simultâneas atingido. Aguarde uma terminar e tente novamente.")
+        # Uma RTX 5060 Ti com 16 GB: serializa os trabalhos para evitar OOM.
+        # Novos trabalhos permanecem em fila até a GPU ficar livre.
+        render_slots.acquire()
         try:
             if youtube_url:
                 video_path = download_youtube(youtube_url, directory, job_id)
