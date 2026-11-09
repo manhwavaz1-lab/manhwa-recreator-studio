@@ -37,7 +37,7 @@ JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "21600"))
 jobs: dict[str, dict] = {}
 requests_by_ip = defaultdict(deque)
 rate_lock, jobs_lock = Lock(), Lock()
-PARALLEL_SEGMENTS = max(1, min(15, int(os.getenv("PARALLEL_SEGMENTS", "15"))))
+PARALLEL_SEGMENTS = max(1, min(9, int(os.getenv("PARALLEL_SEGMENTS", "9"))))
 render_slots = BoundedSemaphore(max(1, int(os.getenv("RENDER_SLOTS", str(PARALLEL_SEGMENTS)))))
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtube-nocookie.com"}
 
