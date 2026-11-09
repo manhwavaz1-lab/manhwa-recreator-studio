@@ -8,10 +8,10 @@ SITE_PORT="${PORT:-8000}"
 API_PORT=8001
 CPU_COUNT="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 4)"
 # Use every CPU thread exposed by the Vast.ai instance unless explicitly overridden.
-DEFAULT_RENDER_THREADS="48"
+DEFAULT_RENDER_THREADS="96"
 export RENDER_THREADS="${RENDER_THREADS:-$DEFAULT_RENDER_THREADS}"
 export RENDER_SLOTS="${RENDER_SLOTS:-1}"
-export PARALLEL_SEGMENTS="${PARALLEL_SEGMENTS:-9}"
+export PARALLEL_SEGMENTS="${PARALLEL_SEGMENTS:-3}"
 # Keep library-level CPU pools bounded to the per-segment allocation.
 RENDER_THREADS_PER_SEGMENT="$(((RENDER_THREADS + PARALLEL_SEGMENTS - 1) / PARALLEL_SEGMENTS))"
 export RENDER_THREADS_PER_SEGMENT
